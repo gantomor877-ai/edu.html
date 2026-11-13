@@ -1,0 +1,2079 @@
+/* =========================================================================
+   EduPulse - online learning site
+   --------------------------------------------------------------------------
+   All pages live in index.html as <template> elements. Only ONE page is
+   mounted at a time, so element ids and page scripts never clash. Navigation
+   uses the shared site menu, contextual links, and URL hashes (#p01 ... #p25).
+
+   Each page's original inline <script> is kept inside PAGES below, wrapped in
+   init(document). Inside init, `document` is a proxy whose queries are limited
+   to the mounted page. While a page is mounted, its document/window listeners
+   and timers are tracked and removed again when you leave the page.
+   ========================================================================= */
+(function () {
+  'use strict';
+
+  /* ---------------------------------------------------------------------
+     1. Sandbox: track listeners and timers created by the active page
+     --------------------------------------------------------------------- */
+  var epActive = null;                                   // sandbox of the mounted page
+  var selectedCourseCategory = '';
+  var selectedCourseQuery = '';
+  var epQuizPaused = false;
+  var epQuizQuestion = 1;
+  var epRealAdd = EventTarget.prototype.addEventListener;
+  var epRealElementAdd = Element.prototype.addEventListener;
+  var epRealRemove = EventTarget.prototype.removeEventListener;
+  var epRealSetTimeout = window.setTimeout;
+  var epRealSetInterval = window.setInterval;
+  var epRealClearTimeout = window.clearTimeout;
+  var epRealClearInterval = window.clearInterval;
+
+  Element.prototype.addEventListener = function (type, listener, options) {
+    if (epActive && type === 'click' && this.matches && this.matches('button, a')) {
+      this.setAttribute('data-ep-bound', 'true');
+    }
+    return epRealElementAdd.call(this, type, listener, options);
+  };
+
+  function epGuardTarget(target) {
+    target.addEventListener = function (type, listener, options) {
+      if (!epActive) {
+        return epRealAdd.call(target, type, listener, options);
+      }
+      var ready = (type === 'DOMContentLoaded' && document.readyState !== 'loading') ||
+                  (type === 'load' && document.readyState === 'complete');
+      if (ready) {
+        // The page scripts run after the document has already loaded, so run
+        // these handlers right after the current page init finishes.
+        var owner = epActive;
+        queueMicrotask(function () {
+          if (owner === epActive) listener.call(target, new Event(type));
+        });
+        return;
+      }
+      epRealAdd.call(target, type, listener, options);
+      epActive.listeners.push([target, type, listener, options]);
+    };
+  }
+  epGuardTarget(document);
+  epGuardTarget(window);
+
+  window.setTimeout = function () {
+    var id = epRealSetTimeout.apply(window, arguments);
+    if (epActive) epActive.timers.push(id);
+    return id;
+  };
+  window.setInterval = function () {
+    var id = epRealSetInterval.apply(window, arguments);
+    if (epActive) epActive.timers.push(id);
+    return id;
+  };
+
+  /* A `document` stand-in for page scripts: queries only search the mounted page. */
+  function epScopedDocument(root) {
+    return new Proxy(document, {
+      get: function (target, prop) {
+        switch (prop) {
+          case 'getElementById':
+            return function (id) { return root.querySelector('#' + CSS.escape(String(id))); };
+          case 'querySelector':
+            return function (sel) { return root.querySelector(sel); };
+          case 'querySelectorAll':
+            return function (sel) { return root.querySelectorAll(sel); };
+          case 'getElementsByClassName':
+            return function (name) { return root.getElementsByClassName(name); };
+          case 'getElementsByTagName':
+            return function (name) { return root.getElementsByTagName(name); };
+          default:
+            var value = target[prop];
+            return typeof value === 'function' ? value.bind(target) : value;
+        }
+      },
+      set: function (target, prop, value) {
+        target[prop] = value;
+        return true;
+      }
+    });
+  }
+
+  /* ---------------------------------------------------------------------
+     2. Page registry. Each entry is the original page script.
+        expose = functions that inline onclick="..." attributes call.
+     --------------------------------------------------------------------- */
+  var PAGES = {
+    '01': {
+      expose: [],
+      init: function (document) {
+  document.querySelectorAll('section button').forEach(button => {
+    button.addEventListener('click', function () {
+      const text = buttonLabel(this);
+      const searchInput = document.getElementById('course-search-input');
+      if (searchInput && ['Python', 'UI/UX Дизайн', 'AI & Prompt', 'Data Science', 'Бизнес төсөл'].includes(text)) {
+        selectedCourseQuery = text;
+        go('03', true);
+        return;
+      }
+
+      if (/bookmark_add|хадгалах/i.test(text)) {
+        const saved = this.getAttribute('aria-pressed') !== 'true';
+        setPressed(this, saved);
+        const icon = this.querySelector('.material-symbols-outlined');
+        if (icon) icon.textContent = saved ? 'bookmark' : 'bookmark_add';
+        notify(saved ? 'Сургалтыг хадгаллаа.' : 'Хадгалсан жагсаалтаас хаслаа.');
+        return;
+      }
+
+      if (/сургалт|кодчилол|дизайн|ai & data|бүх ангилал|^бүгд$/i.test(text)) {
+        selectedCourseCategory = /^бүгд$|бүх ангилал/i.test(text) ? '' : text;
+        selectedCourseQuery = '';
+        go('03', true);
+        return;
+      }
+
+      const destination = contextualRoute(this, text);
+      if (destination) go(destination, true);
+      else notify(text + ' үйлдлийг хийлээ.');
+    });
+  });
+      }
+    },
+    '02': {
+      expose: ['handleAuthSubmit', 'togglePasswordVisibility', 'toggleAuthMode'],
+      init: function (document) {
+    let currentMode = 'login';
+
+    function setAuthMode(mode) {
+      currentMode = mode;
+      const tabLogin = document.getElementById('tab-login');
+      const tabSignup = document.getElementById('tab-signup');
+      const fieldFullname = document.getElementById('field-fullname');
+      const formHeading = document.getElementById('form-heading');
+      const formSubheading = document.getElementById('form-subheading');
+      const btnSubmit = document.getElementById('btn-submit');
+      const linkForgot = document.getElementById('link-forgot');
+      const termsHint = document.getElementById('terms-hint');
+      const labelRemember = document.getElementById('label-remember');
+      const footerPrompt = document.getElementById('footer-prompt');
+      const btnToggleMode = document.getElementById('btn-toggle-mode');
+      const inputFullname = document.getElementById('input-fullname');
+      const authAlert = document.getElementById('auth-alert');
+
+      if (mode === 'signup') {
+        tabLogin.className = "py-2 text-center rounded-md font-label-md text-label-md font-medium text-on-surface-variant hover:text-primary transition-all";
+        tabSignup.className = "py-2 text-center rounded-md font-label-md text-label-md font-bold transition-all bg-primary text-on-primary shadow-sm";
+        
+        fieldFullname.classList.remove('hidden');
+        inputFullname.required = true;
+        linkForgot.classList.add('hidden');
+        termsHint.classList.remove('hidden');
+        labelRemember.textContent = "Шинэчлэлтүүд авах";
+
+        formHeading.textContent = "Бүртгэл үүсгэх";
+        formSubheading.textContent = "EduPulse-д нэгдэн шилдэг технологийн боловсрол эзэмшээрэй.";
+        btnSubmit.innerHTML = '<span>Бүртгүүлэх</span><span class="material-symbols-outlined text-[20px]">person_add</span>';
+        
+        footerPrompt.textContent = "Бүртгэлтэй хаяг байгаа юу?";
+        btnToggleMode.textContent = "Нэвтрэх";
+      } else {
+        tabSignup.className = "py-2 text-center rounded-md font-label-md text-label-md font-medium text-on-surface-variant hover:text-primary transition-all";
+        tabLogin.className = "py-2 text-center rounded-md font-label-md text-label-md font-bold transition-all bg-primary text-on-primary shadow-sm";
+        
+        fieldFullname.classList.add('hidden');
+        inputFullname.required = false;
+        linkForgot.classList.remove('hidden');
+        termsHint.classList.add('hidden');
+        labelRemember.textContent = "Намайг санах";
+
+        formHeading.textContent = "Тавтай морилно уу";
+        formSubheading.textContent = "Өөрийн хувийн эрхээр системд нэвтэрч сургалтаа үргэлжлүүлнэ үү.";
+        btnSubmit.innerHTML = '<span>Нэвтрэх</span><span class="material-symbols-outlined text-[20px]">arrow_forward</span>';
+        
+        footerPrompt.textContent = "Шинэ хэрэглэгч үү?";
+        btnToggleMode.textContent = "Бүртгэл үүсгэх";
+      }
+      authAlert.classList.add('hidden');
+    }
+
+    window.toggleAuthMode = toggleAuthMode;
+    function toggleAuthMode() {
+      setAuthMode(currentMode === 'login' ? 'signup' : 'login');
+    }
+
+    document.getElementById('tab-login').addEventListener('click', () => setAuthMode('login'));
+    document.getElementById('tab-signup').addEventListener('click', () => setAuthMode('signup'));
+
+    window.togglePasswordVisibility = togglePasswordVisibility;
+    function togglePasswordVisibility() {
+      const pwdInput = document.getElementById('input-password');
+      const pwdIcon = document.getElementById('pwd-icon');
+      if (pwdInput.type === 'password') {
+        pwdInput.type = 'text';
+        pwdIcon.textContent = 'visibility_off';
+      } else {
+        pwdInput.type = 'password';
+        pwdIcon.textContent = 'visibility';
+      }
+    }
+
+    window.handleAuthSubmit = handleAuthSubmit;
+    function handleAuthSubmit() {
+      const alert = document.getElementById('auth-alert');
+      // Өмнөх хуурамч амжилтын мессежийг API холбогдох хүртэл ашиглахгүй.
+      alert.textContent = currentMode === 'login'
+        ? 'ДЕМО: Нэвтрэх хүсэлт шалгагдсангүй. API холбогдоогүй тул та нэвтрээгүй, мэдээлэл илгээгдээгүй.'
+        : 'ДЕМО: Бүртгэлийн талбаруудыг шалгалаа. API холбогдоогүй тул бүртгэл үүсээгүй, мэдээлэл хадгалагдаагүй.';
+      alert.classList.remove('hidden');
+    }
+
+    document.getElementById('link-forgot').addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const alert = document.getElementById('auth-alert');
+      alert.textContent = 'ДЕМО: Нууц үг сэргээх API холбогдоогүй тул хүсэлт илгээгдсэнгүй.';
+      alert.classList.remove('hidden');
+    });
+
+    document.querySelectorAll('#auth-form + div + div button[type="button"]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const provider = button.textContent.trim();
+        const alert = document.getElementById('auth-alert');
+        alert.textContent = 'ДЕМО: ' + provider + ' нэвтрэлт холбогдоогүй тул нэвтрэх боломжгүй.';
+        alert.classList.remove('hidden');
+      });
+    });
+  
+      }
+    },
+    '03': {
+      expose: [],
+      init: function (document) {
+    document.addEventListener('DOMContentLoaded', () => {
+      const mobileTrigger = document.getElementById('mobile-filter-trigger');
+      const sidebar = document.getElementById('filter-sidebar');
+      
+      if (mobileTrigger && sidebar) {
+        mobileTrigger.addEventListener('click', () => {
+          sidebar.classList.toggle('hidden');
+          if (!sidebar.classList.contains('hidden')) {
+            sidebar.scrollIntoView({ behavior: 'smooth' });
+          }
+        });
+      }
+    });
+
+    if (selectedCourseCategory || selectedCourseQuery) {
+      var category = selectedCourseCategory.toLowerCase();
+      if (category === 'кодчилол') category = 'хөгжүүлэлт';
+      else if (category === 'дизайн') category = 'дизайн';
+      else if (category === 'ai & data') category = 'өгөгдөл';
+      var query = selectedCourseQuery || category;
+      var searchInput = document.querySelector('input[placeholder*="Хичээлийн нэр"]');
+      if (searchInput) searchInput.value = query;
+      filterVisibleItems(query.toLowerCase());
+    }
+  
+      }
+    },
+    '04': {
+      expose: ['toggleModule'],
+      init: function (document) {
+  window.toggleModule = toggleModule;
+  function toggleModule(id) {
+    const content = document.getElementById(`content-mod-${id}`);
+    const icon = document.getElementById(`icon-mod-${id}`);
+    if (!content || !icon) return;
+
+    if (content.classList.contains('hidden')) {
+      content.classList.remove('hidden');
+      icon.style.transform = 'rotate(180deg)';
+    } else {
+      content.classList.add('hidden');
+      icon.style.transform = 'rotate(0deg)';
+    }
+  }
+
+  // Open first module by default
+  document.addEventListener('DOMContentLoaded', () => {
+    toggleModule(1);
+    
+    // Toggle all button
+    const toggleBtn = document.getElementById('toggle-all-curriculum');
+    let allOpen = false;
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        allOpen = !allOpen;
+        for (let i = 1; i <= 5; i++) {
+          const content = document.getElementById(`content-mod-${i}`);
+          const icon = document.getElementById(`icon-mod-${i}`);
+          if (content && icon) {
+            if (allOpen) {
+              content.classList.remove('hidden');
+              icon.style.transform = 'rotate(180deg)';
+            } else {
+              content.classList.add('hidden');
+              icon.style.transform = 'rotate(0deg)';
+            }
+          }
+        }
+        toggleBtn.querySelector('span:last-child').textContent = allOpen ? 'Бүгдийг хураах' : 'Бүгдийг дэлгэх';
+      });
+    }
+
+    // Dynamic timer demo decrement
+    const timerElem = document.getElementById('countdown-timer');
+    if (timerElem) {
+      let seconds = 51725;
+      setInterval(() => {
+        if (seconds > 0) {
+          seconds--;
+          const d = Math.floor(seconds / (3600 * 24));
+          const h = Math.floor((seconds % (3600 * 24)) / 3600);
+          const m = Math.floor((seconds % 3600) / 60);
+          const s = seconds % 60;
+          timerElem.textContent = `0${d} өдөр ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+      }, 1000);
+    }
+  });
+      }
+    },
+    '05': {
+      expose: ['switchTab', 'toggleCompleted'],
+      init: function (document) {
+      window.switchTab = switchTab;
+      function switchTab(tabId) {
+        const tabs = ['notes', 'assignment', 'qa', 'privatenotes'];
+        tabs.forEach(id => {
+          const content = document.getElementById('tabContent-' + id);
+          const btn = document.getElementById('tabBtn-' + id);
+          if (!content || !btn) return;
+          
+          if (id === tabId) {
+            content.classList.remove('hidden');
+            btn.className = 'px-4 py-3 text-xs font-bold text-blue-700 bg-white border-t-2 border-blue-600 rounded-t-xl transition-colors flex items-center gap-2 whitespace-nowrap shadow-xs';
+          } else {
+            content.classList.add('hidden');
+            btn.className = 'px-4 py-3 text-xs font-semibold text-slate-600 hover:text-slate-900 rounded-t-xl transition-colors flex items-center gap-2 whitespace-nowrap';
+          }
+        });
+      }
+
+      window.toggleCompleted = toggleCompleted;
+      function toggleCompleted(btn) {
+        const isCompleted = btn.getAttribute('data-completed') === 'true';
+        if (!isCompleted) {
+          btn.setAttribute('data-completed', 'true');
+          btn.innerHTML = '<span class="material-symbols-outlined text-[19px]">verified</span><span>Амжилттай дууссан! ✔</span>';
+          btn.className = 'inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 transition-all shadow-xs text-xs font-bold';
+        } else {
+          btn.setAttribute('data-completed', 'false');
+          btn.innerHTML = '<span class="material-symbols-outlined text-[19px]">check_circle</span><span>Хичээл дуусгасан гэж тэмдэглэх</span>';
+          btn.className = 'inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-sm shadow-emerald-500/30 text-xs font-bold';
+        }
+      }
+
+      }
+    },
+    '06': {
+      expose: [],
+      init: function (document) {
+// (no script on this page)
+      }
+    },
+    '07': {
+      expose: [],
+      init: function (document) {
+// (no script on this page)
+      }
+    },
+    '08': {
+      expose: ['submitAssignment', 'runSandboxTests', 'hideToast'],
+      init: function (document) {
+    window.runSandboxTests = runSandboxTests;
+    function runSandboxTests() {
+      const btn = document.getElementById('testRunnerBtn');
+      const terminal = document.getElementById('terminalConsole');
+      const timer = document.getElementById('terminalTime');
+      
+      const originalText = btn.innerHTML;
+      btn.innerHTML = `<span class="material-symbols-outlined text-[18px] animate-spin">refresh</span> Шалгаж байна...`;
+      btn.disabled = true;
+
+      terminal.innerHTML += `\n<p class="text-primary font-semibold">&gt; [${new Date().toLocaleTimeString()}] Triggering fresh CI/CD runner container...</p>`;
+      terminal.scrollTop = terminal.scrollHeight;
+
+      setTimeout(() => {
+        terminal.innerHTML += `<p class="text-outline">&gt; Spawning isolated Redis 7.2 instance...</p>`;
+        terminal.innerHTML += `<p class="text-on-surface">&gt; Concurrency check (Worker: 5): PASS [500 jobs / 0.89s]</p>`;
+        terminal.innerHTML += `<p class="text-primary font-bold">&gt; Finished: 12 unit tests, 0 leaks, 0 errors. Status: OK.</p>`;
+        terminal.scrollTop = terminal.scrollHeight;
+        
+        timer.innerText = `${Math.floor(Math.random() * 80 + 150)}ms runtime`;
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+      }, 1200);
+    }
+
+    window.submitAssignment = submitAssignment;
+    function submitAssignment() {
+      const toast = document.getElementById('successToast');
+      toast.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
+      toast.classList.add('translate-y-0', 'opacity-100');
+
+      setTimeout(() => {
+        hideToast();
+      }, 6000);
+    }
+
+    window.hideToast = hideToast;
+    function hideToast() {
+      const toast = document.getElementById('successToast');
+      toast.classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
+      toast.classList.remove('translate-y-0', 'opacity-100');
+    }
+
+    document.getElementById('runTestsBtn').addEventListener('click', runSandboxTests);
+  
+      }
+    },
+    '09': {
+      expose: [],
+      init: function (document) {
+// (no script on this page)
+      }
+    },
+    '10': {
+      expose: [],
+      init: function (document) {
+// (no script on this page)
+      }
+    },
+    '11': {
+      expose: [],
+      init: function (document) {
+    (function() {
+      const copyBtn = document.getElementById('copy-lottery-btn');
+      const downloadBtn = document.getElementById('download-receipt-btn');
+      const toast = document.getElementById('toast-notification');
+      const toastText = document.getElementById('toast-text');
+
+      function showToast(message) {
+        if (!toast || !toastText) return;
+        toastText.textContent = message;
+        toast.classList.remove('translate-y-20', 'opacity-0');
+        toast.classList.add('translate-y-0', 'opacity-100');
+        setTimeout(() => {
+          toast.classList.remove('translate-y-0', 'opacity-100');
+          toast.classList.add('translate-y-20', 'opacity-0');
+        }, 2500);
+      }
+
+      if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText('83910248').then(() => {
+            showToast('Сугалааны дугаар хуулагдлаа: 83910248');
+          }).catch(() => {
+            showToast('Хуулахад алдаа гарлаа');
+          });
+        });
+      }
+
+      if (downloadBtn) {
+        downloadBtn.addEventListener('click', () => {
+          showToast('Нэхэмжлэх файл (.PDF) татаж байна...');
+        });
+      }
+    })();
+  
+      }
+    },
+    '12': {
+      expose: [],
+      init: function (document) {
+  // Dynamic Heatmap Generation (52 weeks x 7 days)
+  (function initHeatmap() {
+    const grid = document.getElementById('heatmapGrid');
+    if (!grid) return;
+    
+    // Deterministic procedural weights to emulate authentic coding bursts
+    const intensityClasses = [
+      'bg-surface-container',       // 0: no commits
+      'bg-surface-container-high',  // 1: low
+      'bg-surface-container-highest',// 2: medium
+      'bg-on-surface-variant',      // 3: heavy
+      'bg-primary'                  // 4: super active
+    ];
+
+    const totalDays = 52 * 7;
+    let html = '';
+
+    for (let i = 0; i < totalDays; i++) {
+      // Create pattern clusters
+      let rand = Math.sin(i * 0.18) * 0.5 + Math.cos(i * 0.05) * 0.5;
+      let level = 0;
+      if (rand > 0.55) level = 4;
+      else if (rand > 0.3) level = 3;
+      else if (rand > 0.0) level = 2;
+      else if (rand > -0.3) level = 1;
+      else level = 0;
+
+      // Ensure some days in latest month are highly active
+      if (i > totalDays - 28 && Math.random() > 0.4) {
+        level = Math.max(level, 3);
+      }
+
+      html += `<div class="w-2.5 h-2.5 rounded-sm ${intensityClasses[level]} hover:scale-125 transition-transform cursor-pointer" title="Өдөр ${i + 1}: ${level * 3 + (level > 0 ? 1 : 0)} коммит"></div>`;
+    }
+
+    grid.innerHTML = html;
+  })();
+
+  // Toast notification helper
+  function showToast(msg) {
+    const toast = document.getElementById('toast');
+    const toastMsg = document.getElementById('toastMessage');
+    if (!toast || !toastMsg) return;
+
+    toastMsg.textContent = msg;
+    toast.classList.remove('translate-y-16', 'opacity-0');
+    toast.classList.add('translate-y-0', 'opacity-100');
+
+    setTimeout(() => {
+      toast.classList.add('translate-y-16', 'opacity-0');
+      toast.classList.remove('translate-y-0', 'opacity-100');
+    }, 3000);
+  }
+
+  // Interactive buttons
+  document.getElementById('exportPdfBtn')?.addEventListener('click', () => {
+    showToast('Сурлагын албан ёсны PDF тайлан татагдаж байна...');
+  });
+
+  document.getElementById('exportCsvBtn')?.addEventListener('click', () => {
+    showToast('Аналитикийн түүхий өгөгдөл CSV хэлбэрээр татагдлаа.');
+  });
+
+  document.getElementById('shareLinkBtn')?.addEventListener('click', () => {
+    showToast('Баталгаажуулах линк санах ойд хуулагдлаа: edupulse.mn/verify/temuulen-482');
+  });
+
+  document.getElementById('copyPublicLinkBtn')?.addEventListener('click', () => {
+    showToast('Портфолио линк хуулагдлаа: edupulse.mn/profile/temuulen');
+  });
+
+  document.getElementById('linkedinShareBtn')?.addEventListener('click', () => {
+    showToast('LinkedIn сертификат баталгаажуулах хуудас руу шилжиж байна...');
+  });
+      }
+    },
+    '13': {
+      expose: [],
+      init: function (document) {
+    (function() {
+      const monthlyBtn = document.getElementById('monthlyBtn');
+      const yearlyBtn = document.getElementById('yearlyBtn');
+      const proPrice = document.getElementById('proPrice');
+      const proPeriod = document.getElementById('proPeriod');
+      const proSubtext = document.getElementById('proSubtext');
+      const entPrice = document.getElementById('entPrice');
+      const entPeriod = document.getElementById('entPeriod');
+
+      let isYearly = false;
+
+      function updatePricing() {
+        if (isYearly) {
+          monthlyBtn.className = "px-space-md py-2 rounded-lg font-title-md text-title-md text-on-surface-variant hover:text-on-surface transition-all duration-200";
+          yearlyBtn.className = "px-space-md py-2 rounded-lg font-title-md text-title-md text-on-primary bg-primary shadow-sm transition-all duration-200 flex items-center gap-space-xs";
+          proPrice.textContent = "₮470,000";
+          proPeriod.textContent = "/ жил";
+          proSubtext.textContent = "Сард ₮39,166 болж хэмнэгдэнэ";
+          entPrice.textContent = "₮1,824,000";
+          entPeriod.textContent = "/ хэрэглэгч / жил";
+        } else {
+          yearlyBtn.className = "px-space-md py-2 rounded-lg font-title-md text-title-md text-on-surface-variant hover:text-on-surface transition-all duration-200 flex items-center gap-space-xs";
+          monthlyBtn.className = "px-space-md py-2 rounded-lg font-title-md text-title-md text-on-primary bg-primary shadow-sm transition-all duration-200";
+          proPrice.textContent = "₮49,000";
+          proPeriod.textContent = "/ сар";
+          proSubtext.textContent = "Сар бүр төлөлт хийгдэх нөхцөлтэй";
+          entPrice.textContent = "₮190,000";
+          entPeriod.textContent = "/ хэрэглэгч / сар";
+        }
+      }
+
+      monthlyBtn.addEventListener('click', function() {
+        isYearly = false;
+        updatePricing();
+      });
+
+      yearlyBtn.addEventListener('click', function() {
+        isYearly = true;
+        updatePricing();
+      });
+
+      // Accordion functionality
+      const toggles = document.querySelectorAll('.faq-toggle');
+      toggles.forEach(function(toggle) {
+        toggle.addEventListener('click', function() {
+          const content = this.nextElementSibling;
+          const icon = this.querySelector('.faq-icon');
+          const isHidden = content.classList.contains('hidden');
+
+          // Close all others
+          document.querySelectorAll('.faq-content').forEach(function(el) {
+            el.classList.add('hidden');
+          });
+          document.querySelectorAll('.faq-icon').forEach(function(el) {
+            el.classList.remove('rotate-180');
+          });
+
+          if (isHidden) {
+            content.classList.remove('hidden');
+            icon.classList.add('rotate-180');
+          }
+        });
+      });
+    })();
+  
+      }
+    },
+    '14': {
+      expose: ['downloadInvoice', 'submitOrgInvoice'],
+      init: function (document) {
+  window.downloadInvoice = downloadInvoice;
+  function downloadInvoice(invoiceId) {
+    const originalText = event.currentTarget.innerHTML;
+    const button = event.currentTarget;
+    button.innerHTML = '<span class="material-symbols-outlined text-[16px] animate-spin">progress_activity</span><span>Татаж байна...</span>';
+    button.disabled = true;
+
+    setTimeout(() => {
+      button.innerHTML = '<span class="material-symbols-outlined text-[16px]">check</span><span>Татагдлаа</span>';
+      setTimeout(() => {
+        button.innerHTML = originalText;
+        button.disabled = false;
+      }, 1500);
+    }, 900);
+  }
+
+  window.submitOrgInvoice = submitOrgInvoice;
+  function submitOrgInvoice() {
+    const btn = document.getElementById('submitInvoiceBtn');
+    const toast = document.getElementById('formSuccessToast');
+    const regInput = document.getElementById('orgRegisterInput');
+    const nameInput = document.getElementById('orgNameInput');
+    const emailInput = document.getElementById('orgEmailInput');
+
+    if (!regInput.value || !nameInput.value || !emailInput.value) {
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined text-[20px] animate-spin">progress_activity</span><span>Илгээж байна...</span>';
+
+    setTimeout(() => {
+      btn.innerHTML = '<span class="material-symbols-outlined text-[20px]">done_all</span><span>Амжилттай илгээгдлээ</span>';
+      toast.classList.remove('hidden');
+      
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-symbols-outlined text-[20px]">send</span><span>Нэхэмжлэх хүсэлт илгээх</span>';
+        document.getElementById('orgInvoiceForm').reset();
+        setTimeout(() => {
+          toast.classList.add('hidden');
+        }, 4000);
+      }, 2000);
+    }, 800);
+  }
+
+  // Interactive Tax Lookup Mock
+  document.getElementById('lookupTaxBtn')?.addEventListener('click', function() {
+    const reg = document.getElementById('orgRegisterInput').value.trim();
+    const nameInput = document.getElementById('orgNameInput');
+    if (!reg) {
+      alert('Компанийн регистрийн дугаараа оруулна уу.');
+      return;
+    }
+    this.innerText = 'Хайж байна...';
+    setTimeout(() => {
+      this.innerText = 'Шалгах';
+      if (reg.length >= 7) {
+        nameInput.value = 'Монгол Тех Сервис ХХК (Татварт бүртгэлтэй)';
+      } else {
+        alert('Хүчинтэй регистрийн дугаар оруулна уу.');
+      }
+    }, 500);
+  });
+
+  // Client Filter simulation
+  const filterBtns = document.querySelectorAll('.filter-btn');
+  filterBtns.forEach(btn => {
+    btn.addEventListener('click', function() {
+      filterBtns.forEach(b => {
+        b.classList.remove('bg-primary', 'text-on-primary', 'font-semibold');
+        b.classList.add('bg-surface-container', 'text-on-surface-variant', 'font-medium');
+      });
+      this.classList.remove('bg-surface-container', 'text-on-surface-variant', 'font-medium');
+      this.classList.add('bg-primary', 'text-on-primary', 'font-semibold');
+    });
+  });
+
+  // Real-time table search simulation
+  const searchInput = document.getElementById('searchInvoiceInput');
+  searchInput?.addEventListener('keyup', function(e) {
+    const query = e.target.value.toLowerCase();
+    const rows = document.querySelectorAll('#transactionTableBody tr');
+    rows.forEach(row => {
+      const text = row.innerText.toLowerCase();
+      if (text.includes(query)) {
+        row.style.display = '';
+      } else {
+        row.style.display = 'none';
+      }
+    });
+  });
+
+  // Quick statements export
+  document.getElementById('exportStatementBtn')?.addEventListener('click', function() {
+    const btn = this;
+    const initial = btn.innerHTML;
+    btn.innerHTML = '<span class="material-symbols-outlined text-[18px] animate-spin">sync</span><span>Бэлтгэж байна...</span>';
+    setTimeout(() => {
+      btn.innerHTML = '<span class="material-symbols-outlined text-[18px]">check</span><span>CSV бэлэн боллоо</span>';
+      setTimeout(() => {
+        btn.innerHTML = initial;
+      }, 1800);
+    }, 700);
+  });
+
+  // Add Card trigger
+  document.getElementById('addCardBtn')?.addEventListener('click', function() {
+    alert('Карт холбох найдвартай төлбөрийн цонх нээгдэж байна. (3D Secure 2.0)');
+  });
+      }
+    },
+    '15': {
+      expose: [],
+      init: function (document) {
+    (function() {
+      let currentStep = 1;
+      const totalSteps = 4;
+
+      const wizardTabs = document.querySelectorAll('.step-btn');
+      const stepPanes = document.querySelectorAll('.step-pane');
+      const prevBtn = document.getElementById('prevStepBtn');
+      const nextBtn = document.getElementById('nextStepBtn');
+      const stepCounter = document.getElementById('stepCounterText');
+      const topPublishBtn = document.getElementById('topPublishBtn');
+      const finalPublishBtn = document.getElementById('finalPublishBtn');
+      const saveDraftBtn = document.getElementById('saveDraftBtn');
+
+      function updateStep(newStep) {
+        if (newStep < 1 || newStep > totalSteps) return;
+        currentStep = newStep;
+
+        // Hide all panes
+        stepPanes.forEach((pane, idx) => {
+          if (idx + 1 === currentStep) {
+            pane.classList.remove('hidden');
+          } else {
+            pane.classList.add('hidden');
+          }
+        });
+
+        // Update tabs styling
+        wizardTabs.forEach((tab) => {
+          const s = parseInt(tab.getAttribute('data-step'), 10);
+          const numBadge = tab.querySelector('.step-num');
+          const title = tab.querySelector('.font-title-md');
+
+          if (s === currentStep) {
+            tab.classList.add('bg-surface-container');
+            numBadge.className = 'step-num w-7 h-7 rounded-xl bg-primary text-on-primary font-headline-sm text-xs flex items-center justify-center font-bold';
+            title.className = 'font-title-md text-title-md text-primary truncate';
+          } else if (s < currentStep) {
+            tab.classList.remove('bg-surface-container');
+            numBadge.className = 'step-num w-7 h-7 rounded-xl bg-primary text-on-primary font-headline-sm text-xs flex items-center justify-center font-bold';
+            title.className = 'font-title-md text-title-md text-surface-tint truncate';
+          } else {
+            tab.classList.remove('bg-surface-container');
+            numBadge.className = 'step-num w-7 h-7 rounded-xl bg-surface-container-high text-secondary group-hover:text-primary font-headline-sm text-xs flex items-center justify-center font-bold';
+            title.className = 'font-title-md text-title-md text-secondary group-hover:text-primary truncate';
+          }
+        });
+
+        // Update Prev button
+        if (currentStep === 1) {
+          prevBtn.disabled = true;
+          prevBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+          prevBtn.disabled = false;
+          prevBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+
+        // Update Next button
+        if (currentStep === totalSteps) {
+          nextBtn.innerHTML = 'Нийтлэх <span class="material-symbols-outlined text-base">rocket_launch</span>';
+        } else {
+          nextBtn.innerHTML = 'Дараах алхам <span class="material-symbols-outlined text-base">arrow_forward</span>';
+        }
+
+        // Counter text
+        if (stepCounter) {
+          stepCounter.textContent = 'Алхам ' + currentStep + ' / ' + totalSteps;
+        }
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      // Tab clicks
+      wizardTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const step = parseInt(tab.getAttribute('data-step'), 10);
+          updateStep(step);
+        });
+      });
+
+      // Prev / Next actions
+      prevBtn.addEventListener('click', () => {
+        if (currentStep > 1) updateStep(currentStep - 1);
+      });
+
+      nextBtn.addEventListener('click', () => {
+        if (currentStep < totalSteps) {
+          updateStep(currentStep + 1);
+        } else {
+          alert('Сургалт амжилттай нийтлэгдлээ!');
+        }
+      });
+
+      topPublishBtn.addEventListener('click', () => updateStep(4));
+      finalPublishBtn.addEventListener('click', () => {
+        alert('Баяр хүргэе! Сургалт амжилттай нийтлэгдэж суралцагчдад нээлттэй боллоо.');
+      });
+
+      saveDraftBtn.addEventListener('click', () => {
+        const originalText = saveDraftBtn.innerHTML;
+        saveDraftBtn.innerHTML = '<span class="material-symbols-outlined text-base">check</span> Хадгалагдлаа';
+        setTimeout(() => {
+          saveDraftBtn.innerHTML = originalText;
+        }, 1800);
+      });
+    })();
+  
+      }
+    },
+    '16': {
+      expose: [],
+      init: function (document) {
+  (function() {
+    // Interactive Modal Controller
+    const modal = document.getElementById('new-topic-modal');
+    const modalCard = document.getElementById('modal-card');
+    const openBtns = [
+      document.getElementById('open-new-topic-btn'),
+      document.getElementById('open-new-topic-btn-side')
+    ];
+    const closeBtn = document.getElementById('close-modal-btn');
+    const cancelBtn = document.getElementById('cancel-modal-btn');
+    const publishBtn = document.getElementById('publish-topic-btn');
+
+    function openModal() {
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        modalCard.classList.remove('scale-95');
+        modalCard.classList.add('scale-100');
+      }, 10);
+    }
+
+    function closeModal() {
+      if (!modal) return;
+      modal.classList.add('opacity-0');
+      modalCard.classList.remove('scale-100');
+      modalCard.classList.add('scale-95');
+      setTimeout(() => {
+        modal.classList.add('hidden');
+      }, 200);
+    }
+
+    openBtns.forEach(btn => {
+      if (btn) btn.addEventListener('click', openModal);
+    });
+
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+    if (publishBtn) {
+      publishBtn.addEventListener('click', () => {
+        alert('Таны хэлэлцүүлэг амжилттай нийтлэгдлээ!');
+        closeModal();
+      });
+    }
+
+    // Modal background click close
+    if (modal) {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+      });
+    }
+
+    // Upvote / Downvote interactive micro-counter
+    const voteButtons = document.querySelectorAll('.vote-btn');
+    voteButtons.forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const parent = this.closest('div');
+        const countSpan = parent.querySelector('span.font-title-md');
+        if (!countSpan) return;
+        let current = parseInt(countSpan.textContent, 10) || 0;
+        const type = this.getAttribute('data-vote');
+        
+        if (type === 'up') {
+          if (!this.classList.contains('text-primary')) {
+            current += 1;
+            this.classList.add('text-primary');
+          } else {
+            current -= 1;
+            this.classList.remove('text-primary');
+          }
+        } else if (type === 'down') {
+          current = Math.max(0, current - 1);
+        }
+        countSpan.textContent = current;
+      });
+    });
+
+    // Keyboard shortcut for Cmd+K search focus
+    window.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        const searchInput = document.getElementById('forum-search-input');
+        if (searchInput) searchInput.focus();
+      }
+    });
+  })();
+      }
+    },
+    '17': {
+      expose: [],
+      init: function (document) {
+// (no script on this page)
+      }
+    },
+    '18': {
+      expose: ['toggleFlag', 'selectOption', 'clearCurrentSelection', 'reportIssue'],
+      init: function (document) {
+    // Live Countdown Timer
+    epQuizPaused = false;
+    epQuizQuestion = 1;
+    let totalSeconds = 24 * 60 + 18;
+    const timerElement = document.getElementById('assessment-timer');
+
+    const countdownInterval = setInterval(() => {
+      if (epQuizPaused) return;
+      if (totalSeconds <= 0) {
+        clearInterval(countdownInterval);
+        timerElement.innerText = "00:00";
+        alert("Шалгалтын цаг дууслаа!");
+        return;
+      }
+      totalSeconds--;
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      timerElement.innerText = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }, 1000);
+
+    // Flag toggle state
+    let isFlagged = false;
+    window.toggleFlag = toggleFlag;
+    function toggleFlag() {
+      isFlagged = !isFlagged;
+      const flagIcon = document.getElementById('flag-icon');
+      const flagText = document.getElementById('flag-text');
+      const gridBtn = document.getElementById('grid-btn-8');
+
+      if (isFlagged) {
+        flagIcon.textContent = 'bookmark';
+        flagText.textContent = 'Тэмдэглэсэн байна';
+        flagText.classList.add('text-primary');
+        gridBtn.classList.add('bg-secondary-container', 'text-on-secondary-container');
+      } else {
+        flagIcon.textContent = 'flag';
+        flagText.textContent = 'Асуултыг тэмдэглэх';
+        flagText.classList.remove('text-primary');
+        gridBtn.classList.remove('bg-secondary-container', 'text-on-secondary-container');
+      }
+    }
+
+    // Radio Option micro-interaction
+    window.selectOption = selectOption;
+    function selectOption(radio) {
+      document.querySelectorAll('#quiz-options label').forEach(lbl => {
+        lbl.classList.remove('bg-surface-container-highest');
+      });
+      radio.closest('label').classList.add('bg-surface-container-highest');
+    }
+
+    window.clearCurrentSelection = clearCurrentSelection;
+    function clearCurrentSelection() {
+      const radios = document.getElementsByName('quiz_q8');
+      radios.forEach(r => r.checked = false);
+      document.querySelectorAll('#quiz-options label').forEach(lbl => {
+        lbl.classList.remove('bg-surface-container-highest');
+      });
+    }
+
+    window.reportIssue = reportIssue;
+    function reportIssue() {
+      alert("Таны илгээсэн санал #8 дугаартай асуулт дээр амжилттай бүртгэгдлээ. Хянагч багш нар шалгах болно.");
+    }
+  
+      }
+    },
+    '19': {
+      expose: [],
+      init: function (document) {
+// (no script on this page)
+      }
+    },
+    '20': {
+      expose: [],
+      init: function (document) {
+// (no script on this page)
+      }
+    },
+    '21': {
+      expose: [],
+      init: function (document) {
+    (function () {
+      const filterBtns = document.querySelectorAll('.filter-btn');
+      const searchInput = document.getElementById('search-input');
+      const sortSelect = document.getElementById('sort-select');
+      const grid = document.getElementById('projects-grid');
+      const cards = Array.from(document.querySelectorAll('.project-card'));
+
+      let currentCategory = 'all';
+      let searchQuery = '';
+
+      function applyFilters() {
+        cards.forEach((card) => {
+          const category = card.getAttribute('data-category');
+          const title = card.querySelector('h3').textContent.toLowerCase();
+          const desc = card.querySelector('p').textContent.toLowerCase();
+
+          const matchesCat = currentCategory === 'all' || category === currentCategory;
+          const matchesSearch = !searchQuery || title.includes(searchQuery) || desc.includes(searchQuery);
+
+          if (matchesCat && matchesSearch) {
+            card.classList.remove('hidden');
+          } else {
+            card.classList.add('hidden');
+          }
+        });
+      }
+
+      function applySorting() {
+        const sortMode = sortSelect.value;
+        const sortedCards = [...cards].sort((a, b) => {
+          if (sortMode === 'upvotes') {
+            return parseInt(b.getAttribute('data-upvotes'), 10) - parseInt(a.getAttribute('data-upvotes'), 10);
+          } else if (sortMode === 'curator') {
+            const aCurator = a.textContent.includes('Ментор') ? 1 : 0;
+            const bCurator = b.textContent.includes('Ментор') ? 1 : 0;
+            return bCurator - aCurator;
+          } else {
+            return new Date(b.getAttribute('data-date')) - new Date(a.getAttribute('data-date'));
+          }
+        });
+
+        sortedCards.forEach((c) => grid.appendChild(c));
+      }
+
+      filterBtns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          filterBtns.forEach((b) => {
+            b.classList.remove('active', 'bg-primary', 'text-on-primary', 'font-semibold');
+            b.classList.add('text-on-surface-variant');
+          });
+          btn.classList.add('active', 'bg-primary', 'text-on-primary', 'font-semibold');
+          btn.classList.remove('text-on-surface-variant');
+          currentCategory = btn.getAttribute('data-filter');
+          applyFilters();
+        });
+      });
+
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          searchQuery = e.target.value.trim().toLowerCase();
+          applyFilters();
+        });
+      }
+
+      if (sortSelect) {
+        sortSelect.addEventListener('change', () => {
+          applySorting();
+        });
+      }
+
+      // Upvote Micro-interaction
+      document.querySelectorAll('.upvote-btn').forEach((button) => {
+        button.addEventListener('click', function (e) {
+          e.preventDefault();
+          const isVoted = this.getAttribute('data-voted') === 'true';
+          const counter = this.querySelector('.upvote-counter');
+          let currentVal = parseInt(this.getAttribute('data-count'), 10);
+
+          if (!isVoted) {
+            currentVal += 1;
+            this.setAttribute('data-voted', 'true');
+            this.classList.remove('bg-surface-container', 'text-on-surface');
+            this.classList.add('bg-primary', 'text-on-primary');
+            this.querySelector('.material-symbols-outlined').classList.remove('text-primary');
+            this.querySelector('.material-symbols-outlined').classList.add('text-on-primary');
+          } else {
+            currentVal -= 1;
+            this.removeAttribute('data-voted');
+            this.classList.add('bg-surface-container', 'text-on-surface');
+            this.classList.remove('bg-primary', 'text-on-primary');
+            this.querySelector('.material-symbols-outlined').classList.add('text-primary');
+            this.querySelector('.material-symbols-outlined').classList.remove('text-on-primary');
+          }
+          this.setAttribute('data-count', currentVal);
+          this.closest('.project-card').setAttribute('data-upvotes', currentVal);
+          counter.textContent = currentVal;
+        });
+      });
+    })();
+  
+      }
+    },
+    '22': {
+      expose: ['switchTab', 'toggleCompleted'],
+      init: function (document) {
+    window.switchTab = switchTab;
+    function switchTab(tabId) {
+      const tabs = ['notes', 'assignment', 'qa', 'privatenotes'];
+      tabs.forEach(id => {
+        const content = document.getElementById('tabContent-' + id);
+        const btn = document.getElementById('tabBtn-' + id);
+        if (!content || !btn) return;
+        
+        if (id === tabId) {
+          content.classList.remove('hidden');
+          btn.classList.add('text-primary', 'bg-surface-container-lowest', 'font-bold', 'shadow-sm');
+          btn.classList.remove('text-on-surface-variant');
+        } else {
+          content.classList.add('hidden');
+          btn.classList.remove('text-primary', 'bg-surface-container-lowest', 'font-bold', 'shadow-sm');
+          btn.classList.add('text-on-surface-variant');
+        }
+      });
+    }
+
+    window.toggleCompleted = toggleCompleted;
+    function toggleCompleted(btn) {
+      const isCompleted = btn.getAttribute('data-completed') === 'true';
+      if (!isCompleted) {
+        btn.setAttribute('data-completed', 'true');
+        btn.innerHTML = '<span class="material-symbols-outlined text-[20px]">verified</span><span>Амжилттай дууссан! ✔</span>';
+        btn.classList.remove('bg-tertiary');
+        btn.classList.add('bg-tertiary-container');
+      } else {
+        btn.setAttribute('data-completed', 'false');
+        btn.innerHTML = '<span class="material-symbols-outlined text-[20px]">check_circle</span><span>Хичээл дуусгасан гэж тэмдэглэх</span>';
+        btn.classList.remove('bg-tertiary-container');
+        btn.classList.add('bg-tertiary');
+      }
+    }
+  
+      }
+    },
+    '23': {
+      expose: [],
+      init: function (document) {
+    document.addEventListener('DOMContentLoaded', () => {
+      // FAQ Accordion Behavior
+      const accordionItems = document.querySelectorAll('.faq-item');
+      
+      accordionItems.forEach(item => {
+        const toggleBtn = item.querySelector('.faq-toggle');
+        const content = item.querySelector('.faq-content');
+        const icon = item.querySelector('.faq-icon');
+        
+        toggleBtn.addEventListener('click', () => {
+          const isOpen = !content.classList.contains('hidden');
+          
+          // Close all other accordions for clean single-view reading
+          accordionItems.forEach(otherItem => {
+            const otherContent = otherItem.querySelector('.faq-content');
+            const otherIcon = otherItem.querySelector('.faq-icon');
+            if (otherContent !== content) {
+              otherContent.classList.add('hidden');
+              otherIcon.textContent = 'expand_more';
+              otherIcon.classList.remove('rotate-180');
+            }
+          });
+          
+          if (isOpen) {
+            content.classList.add('hidden');
+            icon.textContent = 'expand_more';
+            icon.classList.remove('rotate-180');
+          } else {
+            content.classList.remove('hidden');
+            icon.textContent = 'expand_less';
+            icon.classList.add('rotate-180');
+          }
+        });
+      });
+
+      // Quick keyword injection into search bar
+      const searchInput = document.getElementById('kb-search-input');
+      const keywordButtons = document.querySelectorAll('button:not(.faq-toggle)');
+      keywordButtons.forEach(btn => {
+        if (btn.closest('.font-body-sm') && searchInput) {
+          btn.addEventListener('click', () => {
+            searchInput.value = btn.textContent.trim();
+            searchInput.focus();
+          });
+        }
+      });
+    });
+  
+      }
+    },
+    '24': {
+      expose: [],
+      init: function (document) {
+  (function initNotificationHub() {
+    // Filter pill toggles
+    const pills = document.querySelectorAll('.tab-pill');
+    pills.forEach(pill => {
+      pill.addEventListener('click', () => {
+        const selected = pill.textContent.trim().toLowerCase();
+        pills.forEach(p => {
+          p.classList.remove('bg-primary', 'text-on-primary', 'font-semibold');
+          p.classList.add('text-on-surface-variant');
+        });
+        pill.classList.remove('text-on-surface-variant');
+        pill.classList.add('bg-primary', 'text-on-primary', 'font-semibold');
+
+        const list = document.getElementById('notificationList');
+        const chat = document.getElementById('chatStream');
+        const form = document.getElementById('chatForm');
+        if (list) list.classList.toggle('hidden', selected === 'зурвас');
+        if (chat) chat.classList.toggle('hidden', selected !== 'зурвас');
+        if (form) form.classList.toggle('hidden', selected !== 'зурвас');
+        if (list && selected !== 'зурвас') {
+          list.querySelectorAll(':scope > *').forEach(item => {
+            const text = item.textContent.toLowerCase();
+            const matches = selected === 'бүх мэдэгдэл' ||
+              (selected === 'даалгавар' && /даалгавар|шалгалт|үнэлгээ/.test(text)) ||
+              (selected === 'багш' && /багш|teacher|ментор/.test(text)) ||
+              (selected === 'систем' && /систем|шинэ хөтөлбөр|зар/.test(text));
+            item.classList.toggle('hidden', !matches);
+          });
+        }
+      });
+    });
+
+    // Mark All Read interaction
+    const markReadBtn = document.getElementById('markAllReadBtn');
+    if (markReadBtn) {
+      markReadBtn.addEventListener('click', () => {
+        const indicators = document.querySelectorAll('#notificationList .bg-primary.w-1');
+        indicators.forEach(el => el.classList.remove('bg-primary'));
+        markReadBtn.innerHTML = '<span class="material-symbols-outlined text-[18px] text-primary">check</span><span>Бүгдийг уншсан</span>';
+      });
+    }
+
+    // Interactive Chat Input
+    const chatForm = document.getElementById('chatForm');
+    const messageInput = document.getElementById('messageInput');
+    const chatStream = document.getElementById('chatStream');
+
+    if (chatForm && messageInput && chatStream) {
+      chatForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const text = messageInput.value.trim();
+        if (!text) return;
+
+        const timeStr = new Date().toLocaleTimeString('mn-MN', { hour: '2-digit', minute: '2-digit' });
+        
+        const bubble = document.createElement('div');
+        bubble.className = 'flex items-start justify-end gap-space-md max-w-[85%] self-end animate-fade-in';
+        bubble.innerHTML = `
+          <div class="flex flex-col items-end gap-space-xs">
+            <div class="p-space-md rounded-2xl rounded-tr-sm bg-primary text-on-primary flex flex-col gap-space-xs shadow-sm">
+              <p class="font-body-md text-body-md font-normal leading-relaxed">${text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>
+            </div>
+            <span class="font-label-md text-label-md text-outline px-1">${timeStr} &bull; Илгээгдсэн</span>
+          </div>
+          <div class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center flex-shrink-0 text-primary font-label-caps">
+            БИ
+          </div>
+        `;
+
+        chatStream.appendChild(bubble);
+        messageInput.value = '';
+        chatStream.scrollTop = chatStream.scrollHeight;
+      });
+    }
+  })();
+      }
+    },
+    '25': {
+      expose: [],
+      init: function (document) {
+    (function initEduPulseAbout() {
+      const modal = document.getElementById('mentorDialog');
+      const openBtn = document.getElementById('mentorModalTrigger');
+      const closeBtn = document.getElementById('mentorDialogClose');
+      const cancelBtn = document.getElementById('mentorDialogCancel');
+
+      function openModal() {
+        if (!modal) return;
+        modal.classList.remove('opacity-0', 'pointer-events-none');
+        modal.classList.add('opacity-100', 'pointer-events-auto');
+      }
+
+      function closeModal() {
+        if (!modal) return;
+        modal.classList.add('opacity-0', 'pointer-events-none');
+        modal.classList.remove('opacity-100', 'pointer-events-auto');
+      }
+
+      if (openBtn) openBtn.addEventListener('click', openModal);
+      if (closeBtn) closeBtn.addEventListener('click', closeModal);
+      if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+    })();
+  
+      }
+    }
+  };
+
+  /* ---------------------------------------------------------------------
+     3. Mounting
+     --------------------------------------------------------------------- */
+  var app = document.getElementById('ep-app');
+  var current = null;   // { id, root, sandbox }
+  var epDarkMode = window.localStorage.getItem('ep-theme') === 'dark';
+
+  function applyTheme(isDark, persist) {
+    epDarkMode = isDark;
+    document.body.classList.toggle('ep-dark-mode', isDark);
+    if (current) current.root.classList.toggle('ep-dark-mode', isDark);
+
+    var toggle = document.getElementById('ep-theme-toggle');
+    if (toggle) {
+      toggle.setAttribute('aria-pressed', String(isDark));
+      toggle.setAttribute('aria-label', isDark ? 'Цагаан горим асаах' : 'Хар горим асаах');
+      toggle.title = isDark ? 'Цагаан горим руу шилжих' : 'Хар горим руу шилжих';
+      toggle.querySelector('.material-symbols-outlined').textContent = isDark ? 'light_mode' : 'dark_mode';
+    }
+
+    if (persist) window.localStorage.setItem('ep-theme', isDark ? 'dark' : 'light');
+  }
+
+  function templateFor(id) {
+    return document.querySelector('template[data-page-id="' + id + '"]');
+  }
+
+  function unmount() {
+    if (!current) return;
+    var sb = current.sandbox;
+    sb.listeners.forEach(function (l) { epRealRemove.call(l[0], l[1], l[2], l[3]); });
+    sb.timers.forEach(function (t) { epRealClearTimeout(t); epRealClearInterval(t); });
+    sb.exposed.forEach(function (name) { delete window[name]; });
+    if (current.root.parentNode) current.root.parentNode.removeChild(current.root);
+    epActive = null;
+    current = null;
+  }
+
+  function mount(id) {
+    var tpl = templateFor(id);
+    if (!tpl) return;
+    unmount();
+
+    var root = document.createElement('div');
+    root.setAttribute('data-page', id);
+    root.classList.toggle('ep-dark-mode', epDarkMode);
+
+    var body = document.createElement('div');          // carries the page's original <body> classes
+    body.className = tpl.getAttribute('data-body-class') || '';
+    body.appendChild(tpl.content.cloneNode(true));
+    root.appendChild(body);
+    app.appendChild(root);
+
+    var sandbox = { listeners: [], timers: [], exposed: [] };
+    epActive = sandbox;
+    current = { id: id, root: root, sandbox: sandbox };
+
+    document.title = tpl.getAttribute('data-title') || document.title;
+    window.scrollTo(0, 0);
+
+    var page = PAGES[id];
+    if (page) {
+      try {
+        page.init.call(root, epScopedDocument(root));
+        (page.expose || []).forEach(function (name) { sandbox.exposed.push(name); });
+      } catch (err) {
+        console.error('[EduPulse] page ' + id + ' failed to start:', err);
+      }
+    }
+    updateNavigation(id);
+  }
+
+  /* ---------------------------------------------------------------------
+     4. Navigation
+     --------------------------------------------------------------------- */
+  var PATHS = {
+    nuur: '01',
+    surgaltuud: '03',
+    'minii-surgalt': '07',
+    'hicheel-uzeh': '22',
+    sambar: '12',
+    tosluud: '21',
+    une: '13',
+    'khamt-olon': '25',
+    nuutslal: '19',
+    'uilchilgeenii-nohtsol': '26',
+    daalgavar: '08',
+    'amjilt-sertefikat': '07',
+    tohirgoo: '19',
+    nuhtsul: '26'
+  };
+
+  function idFromHash() {
+    var match = /^#p(\d{2})$/.exec(location.hash);
+    return match && templateFor(match[1]) ? match[1] : null;
+  }
+
+  function go(id, push) {
+    if (!templateFor(id)) return;
+    if (!current || current.id !== id) mount(id);
+    var hash = '#p' + id;
+    if (location.hash !== hash) {
+      if (push) history.pushState(null, '', hash);
+      else history.replaceState(null, '', hash);
+    }
+  }
+
+  function updateNavigation(id) {
+    document.querySelectorAll('[data-ep-nav]').forEach(function (link) {
+      if (link.getAttribute('data-ep-nav') === id) {
+        link.setAttribute('aria-current', 'page');
+      } else {
+        link.removeAttribute('aria-current');
+      }
+    });
+  }
+
+  function contextualRoute(target, label) {
+    if (!current) return null;
+    if (/^нүүр$/i.test(label)) return '01';
+    if (/мэдэгдэл|notifications/i.test(label)) return '24';
+    if (/^(нэвтрэх|бүртгүүлэх|анкет оруулах|системээс гарах)$/i.test(label)) return '02';
+    if (/тусламж|help center|шууд чат эхлүүлэх/i.test(label)) return '23';
+    if (/^(нийгэмлэг|хэлэлцүүлэг|community)$/i.test(label)) return '16';
+    if (/^(үнэ|үнийн багц|pricing)$/i.test(label)) return '13';
+    if (/^(төлбөр|нэхэмжлэх|и-баримт)$/i.test(label)) return '14';
+    if (/^(профайл|тохиргоо|хувийн мэдээлэл)$/i.test(label)) return '19';
+    if (/нууцлал/i.test(label)) return '19';
+    if (/үйлчилгээний нөхцөл|^нөхцөл$/i.test(label)) return '26';
+    if (/^(даалгавар|даалгаврууд|assignment)$/i.test(label)) return '08';
+    if (/сертификат/i.test(label)) return '07';
+    if (/^(хичээлүүд|хичээл үзэх|хичээл эхлүүлэх)$/i.test(label)) return '22';
+    if (/^(хөтөлбөрүүд|сургалтууд|сургалтын каталог)$/i.test(label)) return '03';
+    if (/^(ажлын байр|карьер төв)$/i.test(label)) return '06';
+    if (/^(түншүүд|бидний тухай|хамт олон)$/i.test(label)) return '25';
+    if (/менторшип/i.test(label)) return '20';
+    if (current.id === '07' && /бүгдийг харах/i.test(label)) return '03';
+    if (current.id === '01' && /(ангилал|сургалт|хичээл хайх)/i.test(label)) return '03';
+    if (/(сургалтууд руу буцах|сургалтын каталог)/i.test(label)) return '03';
+    if (current.id === '03' && (
+      target.closest('article, [data-course-card], .course-card') ||
+      /(дэлгэрэнгүй|course details)/i.test(label)
+    )) return '04';
+    if (current.id === '04' && /(сагс|элсэх|бүртгүүлэх|худалдан авах|enroll|checkout)/i.test(label)) return '10';
+    if (current.id === '10' && /(төлөх|захиалах|баталгаажуулах|pay|place order)/i.test(label)) return '11';
+    if (current.id === '11' && /(classroom player|суралцаж эхлэх)/i.test(label)) return '22';
+    if (current.id === '11' && /(dashboard|суралцах самбар)/i.test(label)) return '07';
+    if (current.id === '11' && /(хичээл|сургалтаа эхлүүлэх|үргэлжлүүлэх|эхлэх)/i.test(label)) return '07';
+    if (current.id === '07' && /(хичээл|үргэлжлүүлэн суралцах|сургалтаа үргэлжлүүлэх|continue learning)/i.test(label)) return '22';
+    if (current.id === '06' && /(ментортой цаг товлох|багштай уулзах)/i.test(label)) return '20';
+    if ((current.id === '05' || current.id === '22') && /(сорил|quiz)/i.test(label)) return '18';
+    if ((current.id === '05' || current.id === '22') && /(даалгавар|илгээх|assignment)/i.test(label)) return '08';
+    if (current.id === '18' && /(суралцах самбар|dashboard)/i.test(label)) return '07';
+    if (current.id === '17' && /(шинэ сургалт нэмэх|сургалт үүсгэх)/i.test(label)) return '15';
+    if (current.id === '20' && /(дэлгэрэнгүй|сургалт үзэх)/i.test(label)) return '04';
+    return null;
+  }
+
+  var toastTimer = null;
+  function notify(message) {
+    var toast = document.getElementById('ep-toast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.add('is-visible');
+    if (toastTimer) epRealClearTimeout(toastTimer);
+    toastTimer = epRealSetTimeout.call(window, function () {
+      toast.classList.remove('is-visible');
+    }, 2600);
+  }
+
+  function buttonLabel(button) {
+    return (button.getAttribute('aria-label') || button.getAttribute('title') || button.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function setPressed(button, pressed) {
+    button.setAttribute('aria-pressed', String(pressed));
+    button.classList.toggle('bg-primary', pressed);
+    button.classList.toggle('text-on-primary', pressed);
+    button.classList.toggle('is-active', pressed);
+  }
+
+  function filterVisibleItems(query) {
+    if (!current) return;
+    var root = current.root;
+    var items = [];
+    if (current.id === '03') {
+      var detailButtons = Array.from(root.querySelectorAll('button')).filter(function (button) {
+        return /дэлгэрэнгүй/i.test(buttonLabel(button));
+      });
+      items = detailButtons.map(function (button) {
+        return button.closest('.group') || button.closest('article') || button.parentElement;
+      });
+    } else if (current.id === '06') {
+      items = Array.from(root.querySelectorAll('article'));
+    } else if (current.id === '21') {
+      items = Array.from(root.querySelectorAll('.project-card'));
+    } else if (current.id === '23') {
+      items = Array.from(root.querySelectorAll('.faq-item'));
+    } else if (current.id === '24') {
+      items = Array.from(root.querySelectorAll('#notificationList > *'));
+    }
+
+    items = Array.from(new Set(items.filter(Boolean)));
+    if (!items.length) return;
+    items.forEach(function (item) {
+      if (!item.hasAttribute('data-ep-original-hidden')) {
+        item.setAttribute('data-ep-original-hidden', String(item.classList.contains('hidden')));
+      }
+      var originallyHidden = item.getAttribute('data-ep-original-hidden') === 'true';
+      item.classList.toggle('hidden', originallyHidden || (!!query && !item.textContent.toLowerCase().includes(query)));
+    });
+  }
+
+  function applyCheckedFilters() {
+    if (!current) return;
+    var root = current.root;
+    var items = [];
+    var choices = [];
+    var checked = Array.from(root.querySelectorAll('input[type="checkbox"]:checked, input[type="radio"]:checked'));
+    checked.forEach(function (input) {
+      var label = input.closest('label');
+      if (!label && input.id) label = root.querySelector('label[for="' + CSS.escape(input.id) + '"]');
+      if (label) choices.push(label.textContent.replace(/\b\d+\b/g, '').trim().toLowerCase());
+    });
+
+    if (current.id === '03') {
+      var detailButtons = Array.from(root.querySelectorAll('button')).filter(function (button) {
+        return /дэлгэрэнгүй/i.test(buttonLabel(button));
+      });
+      items = detailButtons.map(function (button) {
+        return button.closest('.group') || button.closest('article');
+      });
+    } else if (current.id === '06') {
+      items = Array.from(root.querySelectorAll('article'));
+    }
+
+    items = Array.from(new Set(items.filter(Boolean)));
+    if (!items.length) return;
+    items.forEach(function (item) {
+      if (!item.hasAttribute('data-ep-original-hidden')) {
+        item.setAttribute('data-ep-original-hidden', String(item.classList.contains('hidden')));
+      }
+      var originalHidden = item.getAttribute('data-ep-original-hidden') === 'true';
+      var itemText = item.textContent.toLowerCase();
+      var matches = !choices.length || choices.some(function (choice) { return !choice || itemText.includes(choice); });
+      item.classList.toggle('hidden', originalHidden || !matches);
+    });
+    notify('Сонгосон шүүлтүүрээр үр дүнг шинэчиллээ.');
+  }
+
+  function handleSearchInput(input) {
+    var query = input.value.trim().toLowerCase();
+    filterVisibleItems(query);
+  }
+
+  function fallbackButton(button) {
+    if (!current || button.disabled || button.getAttribute('type') === 'submit') return;
+    var label = buttonLabel(button);
+    var lower = label.toLowerCase();
+    var pageId = current.id;
+
+    if (/мэдэгдэл|notifications/i.test(label)) {
+      go('24', true);
+      return;
+    }
+
+    if (/^(хайх|search)$/i.test(label)) {
+      var search = button.parentElement && button.parentElement.querySelector('input[type="search"], input[type="text"]');
+      if (search) {
+        handleSearchInput(search);
+        search.focus();
+        notify(search.value ? 'Хайлтын үр дүн шинэчлэгдлээ.' : 'Хайх үгээ оруулна уу.');
+      }
+      return;
+    }
+
+    if (pageId === '03') {
+      if (/^бүгд$/i.test(label)) {
+        selectedCourseCategory = '';
+        selectedCourseQuery = '';
+        current.root.querySelectorAll('input[type="checkbox"]').forEach(function (input) { input.checked = false; });
+        filterVisibleItems('');
+        notify('Бүх сургалтыг харуулж байна.');
+        return;
+      }
+      if (/^(үнэгүй|хөнгөлөлттэй|төлбөртэй)$/i.test(label)) {
+        var catalogCards = Array.from(current.root.querySelectorAll('button')).filter(function (candidate) {
+          return /дэлгэрэнгүй/i.test(buttonLabel(candidate));
+        }).map(function (candidate) {
+          return candidate.closest('.group') || candidate.closest('article');
+        }).filter(Boolean);
+        catalogCards = Array.from(new Set(catalogCards));
+        catalogCards.forEach(function (card) {
+          if (!card.hasAttribute('data-ep-original-hidden')) {
+            card.setAttribute('data-ep-original-hidden', String(card.classList.contains('hidden')));
+          }
+          var cardText = card.textContent.toLowerCase();
+          var matches = label === 'Үнэгүй'
+            ? /үнэгүй|free/.test(cardText)
+            : label === 'Хөнгөлөлттэй'
+              ? /хямдрал|sale|₮\s*[\d,]+\s*₮/.test(cardText)
+              : /₮/.test(cardText);
+          card.classList.toggle('hidden', card.getAttribute('data-ep-original-hidden') === 'true' || !matches);
+        });
+        current.root.querySelectorAll('#filter-sidebar button').forEach(function (tab) {
+          tab.classList.toggle('is-active', tab === button);
+        });
+        notify(label + ' сургалтуудыг шүүж байна.');
+        return;
+      }
+      if (/дэлгэрэнгүй/i.test(label)) {
+        go('04', true);
+        return;
+      }
+      if (/бүгдийг арилгах|цэвэрлэх|refresh/i.test(label)) {
+        selectedCourseCategory = '';
+        selectedCourseQuery = '';
+        current.root.querySelectorAll('input[type="checkbox"]').forEach(function (input) { input.checked = false; });
+        current.root.querySelectorAll('input[type="text"], input[type="search"]').forEach(function (input) { input.value = ''; });
+        filterVisibleItems('');
+        notify('Сургалтын хайлт, шүүлтүүрийг цэвэрлэлээ.');
+        return;
+      }
+      if (/шүүлтүүр/i.test(label)) {
+        var sidebar = current.root.querySelector('#filter-sidebar');
+        if (sidebar) {
+          sidebar.classList.toggle('hidden');
+          notify(sidebar.classList.contains('hidden') ? 'Шүүлтүүрийг хаалаа.' : 'Шүүлтүүр нээгдлээ.');
+          return;
+        }
+      }
+    }
+
+    if (pageId === '06') {
+      if (/цэвэрлэх/i.test(label)) {
+        current.root.querySelectorAll('input[type="text"], input[type="search"], input[type="number"]').forEach(function (input) { input.value = ''; });
+        current.root.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach(function (input) { input.checked = false; });
+        filterVisibleItems('');
+        notify('Ажлын байрны хайлт, шүүлтүүрийг цэвэрлэлээ.');
+        return;
+      }
+      if (/bookmark|хадгалах/i.test(lower)) {
+        var saved = button.getAttribute('aria-pressed') !== 'true';
+        setPressed(button, saved);
+        notify(saved ? 'Ажлын байрыг хадгаллаа.' : 'Хадгалсан ажлын байрнаас хаслаа.');
+        return;
+      }
+    }
+
+    if (pageId === '10') {
+      if (/сагсыг цэвэрлэх/i.test(label)) {
+        var cart = current.root.querySelector('#cart-items-container');
+        if (cart) cart.innerHTML = '<p class="ep-empty-state">Таны сагс хоосон байна. Сургалт сонгож нэмнэ үү.</p>';
+        notify('Сагсыг цэвэрлэлээ.');
+        return;
+      }
+      if (/delete|устгах/i.test(lower)) {
+        var cart = current.root.querySelector('#cart-items-container');
+        var item = button.closest('[id^="item-course-"]');
+        if (!item && cart) {
+          item = button;
+          while (item.parentElement && item.parentElement !== cart) item = item.parentElement;
+        }
+        if (item && item !== cart && item.parentElement) item.remove();
+        notify('Сургалтыг сагснаас хаслаа.');
+        return;
+      }
+      if (/ашиглах|купон/i.test(lower)) {
+        var coupon = current.root.querySelector('input[placeholder*="Купон"], input[name*="coupon" i]');
+        if (!coupon || !coupon.value.trim()) {
+          notify('Купон кодоо эхлээд оруулна уу.');
+        } else {
+          button.disabled = true;
+          button.setAttribute('aria-pressed', 'true');
+          notify('Купон кодыг шалгаж, хөнгөлөлтийг тооцлоо.');
+        }
+        return;
+      }
+    }
+
+    if (pageId === '18') {
+      if (/түр завсарлах|pause/i.test(lower)) {
+        var paused = button.getAttribute('aria-pressed') !== 'true';
+        epQuizPaused = paused;
+        setPressed(button, paused);
+        button.setAttribute('aria-label', paused ? 'Шалгалтыг үргэлжлүүлэх' : 'Шалгалтыг түр завсарлах');
+        notify(paused ? 'Шалгалтын цаг түр зогслоо.' : 'Шалгалт үргэлжилж байна.');
+        return;
+      }
+      if (/шалгалт дуусгах/i.test(lower)) {
+        if (window.confirm('Та шалгалтаа дуусгахдаа итгэлтэй байна уу?')) go('07', true);
+        return;
+      }
+      if (/сонголтыг цэвэрлэх/i.test(lower)) {
+        current.root.querySelectorAll('input[type="radio"]:checked').forEach(function (input) { input.checked = false; });
+        current.root.querySelectorAll('#quiz-options label').forEach(function (option) { option.classList.remove('bg-surface-container-highest'); });
+        notify('Сонгосон хариултыг арилгалаа.');
+        return;
+      }
+      if (/^(1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24)$/i.test(label) ||
+          /өмнөх асуулт|дараагийн асуулт/i.test(lower)) {
+        var questionButtons = Array.from(current.root.querySelectorAll('button')).filter(function (candidate) {
+          return /^(1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24)$/.test(buttonLabel(candidate));
+        });
+        if (/өмнөх асуулт/i.test(lower)) epQuizQuestion = Math.max(1, epQuizQuestion - 1);
+        else if (/дараагийн асуулт/i.test(lower)) epQuizQuestion = Math.min(questionButtons.length || 24, epQuizQuestion + 1);
+        else epQuizQuestion = Number(label);
+        questionButtons.forEach(function (candidate) {
+          var active = Number(buttonLabel(candidate)) === epQuizQuestion;
+          candidate.classList.toggle('is-active', active);
+          if (active) candidate.setAttribute('aria-current', 'step');
+          else candidate.removeAttribute('aria-current');
+        });
+        notify('Асуулт ' + epQuizQuestion + ' сонгогдлоо.');
+        return;
+      }
+    }
+
+    if (pageId === '19') {
+      if (/системээс гарах|logout/i.test(lower)) {
+        go('02', true);
+        return;
+      }
+      if (/хадгалах|өөрчлөлтийг хадгалах/i.test(lower)) {
+        notify('Тохиргооны өөрчлөлтийг хадгаллаа.');
+        return;
+      }
+      if (/хувийн мэдээлэл|аюулгүй байдал|төлбөрийн хэрэгсэл|мэдэгдлийн тохиргоо|суралцах зорилго|холбогдсон хаягууд/i.test(lower)) {
+        current.root.querySelectorAll('[data-settings-panel]').forEach(function (panel) { panel.classList.add('hidden'); });
+        var section = button.getAttribute('data-settings-section') || lower;
+        var panel = current.root.querySelector('[data-settings-panel="' + section + '"]');
+        if (panel) panel.classList.remove('hidden');
+        current.root.querySelectorAll('button').forEach(function (tab) { tab.classList.toggle('is-active', tab === button); });
+        notify(label + ' хэсгийг нээлээ.');
+        return;
+      }
+      if (/хар горим|цагаан/i.test(lower)) {
+        var darkMode = /хар горим/i.test(lower);
+        applyTheme(darkMode, true);
+        notify(darkMode ? 'Хар горимыг идэвхжүүллээ.' : 'Цагаан горимыг идэвхжүүллээ.');
+        return;
+      }
+    }
+
+    if (pageId === '20' && /захиалах|цаг захиалах|18:00|19:00|20:00|21:00/i.test(lower)) {
+      button.setAttribute('aria-pressed', 'true');
+      button.classList.add('is-active');
+      notify('Уулзалтын цаг сонгогдлоо. Захиалгаа баталгаажуулна уу.');
+      return;
+    }
+
+    if (pageId === '07' && /даалгаврын хуваарь/i.test(lower)) {
+      go('12', true);
+      return;
+    }
+
+    if (pageId === '17' && /тайлан татах/i.test(lower)) {
+      notify('Багшийн тайланг татаж эхэллээ.');
+      return;
+    }
+
+    if (/bookmark|favorite|хүслийн жагсаалт|хадгалах/i.test(lower)) {
+      var pressed = button.getAttribute('aria-pressed') !== 'true';
+      setPressed(button, pressed);
+      notify(pressed ? 'Хадгалсан жагсаалтад нэмлээ.' : 'Хадгалсан жагсаалтаас хаслаа.');
+      return;
+    }
+
+    if (/upload|зураг солих/i.test(lower) || (pageId === '15' && /^солих$/i.test(label))) {
+      var fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = pageId === '19' ? 'image/*' : '*/*';
+      fileInput.hidden = true;
+      fileInput.addEventListener('change', function () {
+        var file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        var image = button.closest('section, article, .group')?.querySelector('img') ||
+          (pageId === '19' && current.root.querySelector('img[alt*="Profile"], img[alt*="профайл"]'));
+        if (image && file.type.indexOf('image/') === 0) {
+          if (image.dataset.epObjectUrl) URL.revokeObjectURL(image.dataset.epObjectUrl);
+          image.dataset.epObjectUrl = URL.createObjectURL(file);
+          image.src = image.dataset.epObjectUrl;
+        }
+        notify(file.name + ' файлыг сонголоо.');
+        fileInput.remove();
+      });
+      current.root.appendChild(fileInput);
+      fileInput.click();
+      return;
+    }
+
+    if (/edit|засах/i.test(lower)) {
+      var editable = button.closest('article, li, .group') || button.parentElement;
+      if (editable) {
+        editable.contentEditable = editable.contentEditable === 'true' ? 'false' : 'true';
+        editable.focus();
+        notify(editable.contentEditable === 'true' ? 'Талбарыг засах горим нээгдлээ.' : 'Засварыг дуусгалаа.');
+      }
+      return;
+    }
+
+    if (/delete|устгах/i.test(lower)) {
+      if (pageId === '19') {
+        var profileImage = button.closest('section, article, .group')?.querySelector('img') ||
+          current.root.querySelector('img[alt*="Profile"], img[alt*="профайл"]');
+        if (profileImage) {
+          profileImage.removeAttribute('src');
+          notify('Профайл зургийг арилгалаа.');
+          return;
+        }
+      }
+      var removable = button.closest('[data-ep-removable], article, li, .group');
+      if (!removable) {
+        removable = button.parentElement && button.parentElement.parentElement;
+      }
+      if (removable && removable !== current.root && removable.contains(button)) {
+        removable.remove();
+        notify('Сонгосон зүйлийг устгалаа.');
+      } else {
+        notify('Устгах зүйл олдсонгүй.');
+      }
+      return;
+    }
+
+    if (/share|хуваалцах/i.test(lower)) {
+      var linkToShare = location.href;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(linkToShare).then(function () {
+          notify('Хуваалцах холбоосыг хууллаа.');
+        }).catch(function () {
+          notify('Холбоос: ' + linkToShare);
+        });
+      } else {
+        notify('Холбоос: ' + linkToShare);
+      }
+      return;
+    }
+
+    if (/play_arrow|play_circle|pause|тоглуулах/i.test(lower)) {
+      var playing = button.getAttribute('aria-pressed') !== 'true';
+      setPressed(button, playing);
+      notify(playing ? 'Хичээлийг тоглуулж байна.' : 'Хичээлийг түр зогсоолоо.');
+      return;
+    }
+
+    if (/copy|хуулах/i.test(lower)) {
+      notify('Хуулах зүйл бэлэн боллоо.');
+      return;
+    }
+
+    if (/download|татах|pdf|csv/i.test(lower)) {
+      notify('Татаж авах хүсэлтийг боловсрууллаа.');
+      return;
+    }
+
+    if (/^(бүгд|шинэ|шилдэг|хариулаагүй|үнэгүй|хөнгөлөлттэй|төлбөртэй)$/i.test(label)) {
+      var group = button.parentElement;
+      if (group) {
+        group.querySelectorAll('button').forEach(function (tab) {
+          setPressed(tab, tab === button);
+        });
+      }
+      notify(label + ' сонголтыг харуулж байна.');
+      return;
+    }
+
+    if (/^(өмнөх|дараах|дараагийн|өмнөх асуулт|дараагийн асуулт|chevron_left|chevron_right|1|2|3|12)$/i.test(label)) {
+      var active = button.parentElement && button.parentElement.querySelector('.is-active, [aria-current="page"]');
+      button.parentElement && button.parentElement.querySelectorAll('button').forEach(function (tab) {
+        tab.classList.remove('is-active');
+        tab.removeAttribute('aria-current');
+      });
+      button.classList.add('is-active');
+      button.setAttribute('aria-current', 'page');
+      notify(active ? 'Хуудас шинэчлэгдлээ.' : 'Сонголт шинэчлэгдлээ.');
+      return;
+    }
+
+    if (/expand|unfold|дэлгэх|нээх|chevron/i.test(lower)) {
+      var content = button.nextElementSibling;
+      if (content) content.classList.toggle('hidden');
+      var expanded = button.getAttribute('aria-expanded') !== 'true';
+      button.setAttribute('aria-expanded', String(expanded));
+      notify(expanded ? 'Дэлгэрэнгүй мэдээллийг нээлээ.' : 'Мэдээллийг хураалаа.');
+      return;
+    }
+
+    var destination = contextualRoute(button, label);
+    if (destination) {
+      go(destination, true);
+      return;
+    }
+    notify(label ? label + ' үйлдлийг хийлээ.' : 'Үйлдэл амжилттай.');
+  }
+
+  /* ---------------------------------------------------------------------
+     5. Boot
+     --------------------------------------------------------------------- */
+  function boot() {
+    applyTheme(epDarkMode, false);
+    document.getElementById('ep-theme-toggle').addEventListener('click', function () {
+      applyTheme(!epDarkMode, true);
+    });
+
+    app.addEventListener('click', function (e) {
+      var target = e.target.closest ? e.target.closest('a, button') : null;
+      if (!target) return;
+
+      var termsLink = target.closest('a[data-terms-nav]');
+      if (termsLink && current && current.id === '26') {
+        e.preventDefault();
+        current.root.querySelectorAll('[data-terms-nav]').forEach(function (link) {
+          link.classList.toggle('is-active', link === termsLink);
+          if (link === termsLink) link.setAttribute('aria-current', 'location');
+          else link.removeAttribute('aria-current');
+        });
+        var termsSection = current.root.querySelector(termsLink.getAttribute('href'));
+        if (termsSection) termsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+
+      var path = target.getAttribute('data-path');
+      if (path && PATHS[path]) {
+        e.preventDefault();
+        go(PATHS[path], true);
+        return;
+      }
+
+      var href = target.getAttribute('href');
+      var pageLink = href && /^#p(\d{2})$/.exec(href);
+      if (pageLink && templateFor(pageLink[1])) {
+        e.preventDefault();
+        go(pageLink[1], true);
+        return;
+      }
+
+      var destination = contextualRoute(target, (target.textContent || '').trim());
+      if (destination) {
+        e.preventDefault();
+        go(destination, true);
+      } else if (target.tagName === 'A' && href === '#') {
+        e.preventDefault();
+        notify((target.textContent || 'Холбоос').trim() + ' хэсгийг нээхэд бэлэн.');
+      } else if (target.tagName === 'BUTTON' &&
+                 target.getAttribute('data-ep-bound') !== 'true' &&
+                 !target.hasAttribute('onclick')) {
+        if (target.type === 'submit' && target.form) {
+          if (target.hasAttribute('type') || /илгээх|submit|төлөх|order/i.test(buttonLabel(target))) return;
+          e.preventDefault();
+        }
+        fallbackButton(target);
+      }
+    });
+    app.addEventListener('input', function (e) {
+      if (e.target.matches('input[type="search"], input[id*="search" i], input[placeholder*="хайх" i], input[placeholder="Search"]')) {
+        handleSearchInput(e.target);
+      }
+    });
+    app.addEventListener('change', function (e) {
+      if (e.target.matches('select')) {
+        if (current && current.id === '03') {
+          var cards = Array.from(current.root.querySelectorAll('button')).filter(function (button) {
+            return /дэлгэрэнгүй/i.test(buttonLabel(button));
+          }).map(function (button) {
+            return button.closest('.group') || button.closest('article');
+          }).filter(Boolean);
+          cards = Array.from(new Set(cards));
+          var parent = cards[0] && cards[0].parentElement;
+          if (parent && cards.every(function (card) { return card.parentElement === parent; })) {
+            var mode = e.target.options[e.target.selectedIndex].textContent.toLowerCase();
+            cards.sort(function (a, b) {
+              if (/эрэлт|үнэлгээ|popular|rating/i.test(mode)) {
+                var ratingA = Number((a.textContent.match(/4\.\d+/) || ['0'])[0]);
+                var ratingB = Number((b.textContent.match(/4\.\d+/) || ['0'])[0]);
+                return ratingB - ratingA;
+              }
+              return a.textContent.localeCompare(b.textContent, 'mn');
+            }).forEach(function (card) { parent.appendChild(card); });
+          }
+          notify('Сургалтуудыг сонгосон дарааллаар эрэмбэллээ.');
+        } else {
+          notify('Сонголтыг шинэчиллээ.');
+        }
+      } else if (e.target.matches('input[type="checkbox"], input[type="radio"]')) {
+        applyCheckedFilters();
+      }
+    });
+    app.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && e.target.matches('input[type="search"], input[id*="search" i], input[placeholder*="хайх" i], input[placeholder="Search"]')) {
+        e.preventDefault();
+        if (current && current.id === '01') {
+          selectedCourseQuery = e.target.value.trim();
+          go('03', true);
+        }
+        else handleSearchInput(e.target);
+      }
+    });
+    app.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (current && current.id === '02') {
+        return;
+      } else if (current && current.id === '10') {
+        go('11', true);
+      } else {
+        notify('Маягтыг амжилттай илгээлээ.');
+      }
+    });
+
+    window.addEventListener('hashchange', route);
+    window.addEventListener('popstate', route);
+
+    route();
+    if (!current) go('01', false);
+  }
+
+  function route() {
+    var id = idFromHash();
+    if (id) go(id, false);
+  }
+
+  boot();
+})();
