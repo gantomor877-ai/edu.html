@@ -105,6 +105,7 @@
     '01': {
       expose: [],
       init: function (document) {
+  updateCartCount(this, readCart().length);
   document.querySelectorAll('section button').forEach(button => {
     button.addEventListener('click', function () {
       const text = buttonLabel(this);
@@ -127,6 +128,12 @@
       if (/сургалт|кодчилол|дизайн|ai & data|бүх ангилал|^бүгд$/i.test(text)) {
         selectedCourseCategory = /^бүгд$|бүх ангилал/i.test(text) ? '' : text;
         selectedCourseQuery = '';
+        go('03', true);
+        return;
+      }
+
+      if (/^хайх$/i.test(text) && searchInput) {
+        selectedCourseQuery = searchInput.value.trim();
         go('03', true);
         return;
       }
@@ -294,49 +301,44 @@
     }
   }
 
-  // Open first module by default
-  document.addEventListener('DOMContentLoaded', () => {
-    toggleModule(1);
-    
-    // Toggle all button
-    const toggleBtn = document.getElementById('toggle-all-curriculum');
-    let allOpen = false;
-    if (toggleBtn) {
-      toggleBtn.addEventListener('click', () => {
-        allOpen = !allOpen;
-        for (let i = 1; i <= 5; i++) {
-          const content = document.getElementById(`content-mod-${i}`);
-          const icon = document.getElementById(`icon-mod-${i}`);
-          if (content && icon) {
-            if (allOpen) {
-              content.classList.remove('hidden');
-              icon.style.transform = 'rotate(180deg)';
-            } else {
-              content.classList.add('hidden');
-              icon.style.transform = 'rotate(0deg)';
-            }
+  toggleModule(1);
+
+  const toggleBtn = document.getElementById('toggle-all-curriculum');
+  let allOpen = false;
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+      allOpen = !allOpen;
+      for (let i = 1; i <= 5; i++) {
+        const content = document.getElementById(`content-mod-${i}`);
+        const icon = document.getElementById(`icon-mod-${i}`);
+        if (content && icon) {
+          if (allOpen) {
+            content.classList.remove('hidden');
+            icon.style.transform = 'rotate(180deg)';
+          } else {
+            content.classList.add('hidden');
+            icon.style.transform = 'rotate(0deg)';
           }
         }
-        toggleBtn.querySelector('span:last-child').textContent = allOpen ? 'Бүгдийг хураах' : 'Бүгдийг дэлгэх';
-      });
-    }
+      }
+      toggleBtn.querySelector('span:last-child').textContent = allOpen ? 'Бүгдийг хураах' : 'Бүгдийг дэлгэх';
+    });
+  }
 
-    // Dynamic timer demo decrement
-    const timerElem = document.getElementById('countdown-timer');
-    if (timerElem) {
-      let seconds = 51725;
-      setInterval(() => {
-        if (seconds > 0) {
-          seconds--;
-          const d = Math.floor(seconds / (3600 * 24));
-          const h = Math.floor((seconds % (3600 * 24)) / 3600);
-          const m = Math.floor((seconds % 3600) / 60);
-          const s = seconds % 60;
-          timerElem.textContent = `0${d} өдөр ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-        }
-      }, 1000);
-    }
-  });
+  const timerElem = document.getElementById('countdown-timer');
+  if (timerElem) {
+    let seconds = 51725;
+    setInterval(() => {
+      if (seconds > 0) {
+        seconds--;
+        const d = Math.floor(seconds / (3600 * 24));
+        const h = Math.floor((seconds % (3600 * 24)) / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = seconds % 60;
+        timerElem.textContent = `0${d} өдөр ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      }
+    }, 1000);
+  }
       }
     },
     '05': {
@@ -374,12 +376,6 @@
         }
       }
 
-      }
-    },
-    '06': {
-      expose: [],
-      init: function (document) {
-// (no script on this page)
       }
     },
     '07': {
@@ -446,8 +442,8 @@
     },
     '10': {
       expose: [],
-      init: function (document) {
-// (no script on this page)
+      init: function () {
+        renderCartPage(this);
       }
     },
     '11': {
@@ -574,9 +570,11 @@
     (function() {
       const monthlyBtn = document.getElementById('monthlyBtn');
       const yearlyBtn = document.getElementById('yearlyBtn');
-      const proPrice = document.getElementById('proPrice');
-      const proPeriod = document.getElementById('proPeriod');
-      const proSubtext = document.getElementById('proSubtext');
+      const premiumPrice = document.getElementById('premiumPrice');
+      const premiumPeriod = document.getElementById('premiumPeriod');
+      const ultraPrice = document.getElementById('ultraPrice');
+      const ultraPeriod = document.getElementById('ultraPeriod');
+      const ultraSubtext = document.getElementById('ultraSubtext');
       const entPrice = document.getElementById('entPrice');
       const entPeriod = document.getElementById('entPeriod');
 
@@ -586,17 +584,21 @@
         if (isYearly) {
           monthlyBtn.className = "px-space-md py-2 rounded-lg font-title-md text-title-md text-on-surface-variant hover:text-on-surface transition-all duration-200";
           yearlyBtn.className = "px-space-md py-2 rounded-lg font-title-md text-title-md text-on-primary bg-primary shadow-sm transition-all duration-200 flex items-center gap-space-xs";
-          proPrice.textContent = "₮470,000";
-          proPeriod.textContent = "/ жил";
-          proSubtext.textContent = "Сард ₮39,166 болж хэмнэгдэнэ";
+          premiumPrice.textContent = "₮4,800,000";
+          premiumPeriod.textContent = "/ жил";
+          ultraPrice.textContent = "₮6,240,000";
+          ultraPeriod.textContent = "/ жил";
+          ultraSubtext.textContent = "Сард ₮520,000 болж хэмнэгдэнэ";
           entPrice.textContent = "₮1,824,000";
           entPeriod.textContent = "/ хэрэглэгч / жил";
         } else {
           yearlyBtn.className = "px-space-md py-2 rounded-lg font-title-md text-title-md text-on-surface-variant hover:text-on-surface transition-all duration-200 flex items-center gap-space-xs";
           monthlyBtn.className = "px-space-md py-2 rounded-lg font-title-md text-title-md text-on-primary bg-primary shadow-sm transition-all duration-200";
-          proPrice.textContent = "₮49,000";
-          proPeriod.textContent = "/ сар";
-          proSubtext.textContent = "Сар бүр төлөлт хийгдэх нөхцөлтэй";
+          premiumPrice.textContent = "₮500,000";
+          premiumPeriod.textContent = "/ сар";
+          ultraPrice.textContent = "₮650,000";
+          ultraPeriod.textContent = "/ сар";
+          ultraSubtext.textContent = "Сар бүр төлөлт хийгдэх нөхцөлтэй";
           entPrice.textContent = "₮190,000";
           entPeriod.textContent = "/ хэрэглэгч / сар";
         }
@@ -1152,6 +1154,16 @@
     '22': {
       expose: ['switchTab', 'toggleCompleted'],
       init: function (document) {
+    if (currentLessonContext) {
+      var courseTitle = document.getElementById('classroom-course-title');
+      var lessonTitle = document.getElementById('classroom-lesson-title');
+      var contentTitle = document.getElementById('classroom-content-title');
+      if (courseTitle) courseTitle.textContent = currentLessonContext.course;
+      if (lessonTitle) lessonTitle.textContent = currentLessonContext.lesson;
+      if (contentTitle) contentTitle.textContent = currentLessonContext.lesson;
+      currentLessonContext = null;
+    }
+
     window.switchTab = switchTab;
     function switchTab(tabId) {
       const tabs = ['notes', 'assignment', 'qa', 'privatenotes'];
@@ -1293,31 +1305,21 @@
     const messageInput = document.getElementById('messageInput');
     const chatStream = document.getElementById('chatStream');
 
+    if (chatStream) {
+      chatStream.innerHTML = `
+        <div class="m-auto flex max-w-md flex-col items-center gap-space-sm text-center" role="status">
+          <span class="material-symbols-outlined text-5xl text-outline" aria-hidden="true">forum</span>
+          <h2 class="font-headline-sm text-headline-sm text-on-surface">Одоогоор зурвас байхгүй байна</h2>
+          <p class="font-body-sm text-body-sm text-on-surface-variant">Профайл олдсонгүй. Нэвтрэлтийн төлөв Unknown тул зурвасын түүх харагдахгүй байна.</p>
+        </div>
+      `;
+    }
+
     if (chatForm && messageInput && chatStream) {
       chatForm.addEventListener('submit', (e) => {
         e.preventDefault();
-        const text = messageInput.value.trim();
-        if (!text) return;
-
-        const timeStr = new Date().toLocaleTimeString('mn-MN', { hour: '2-digit', minute: '2-digit' });
-        
-        const bubble = document.createElement('div');
-        bubble.className = 'flex items-start justify-end gap-space-md max-w-[85%] self-end animate-fade-in';
-        bubble.innerHTML = `
-          <div class="flex flex-col items-end gap-space-xs">
-            <div class="p-space-md rounded-2xl rounded-tr-sm bg-primary text-on-primary flex flex-col gap-space-xs shadow-sm">
-              <p class="font-body-md text-body-md font-normal leading-relaxed">${text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>
-            </div>
-            <span class="font-label-md text-label-md text-outline px-1">${timeStr} &bull; Илгээгдсэн</span>
-          </div>
-          <div class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center flex-shrink-0 text-primary font-label-caps">
-            БИ
-          </div>
-        `;
-
-        chatStream.appendChild(bubble);
-        messageInput.value = '';
-        chatStream.scrollTop = chatStream.scrollHeight;
+        e.stopPropagation();
+        notify('Нэвтрэлтийн төлөв Unknown тул зурвас илгээх боломжгүй. Эхлээд нэвтэрнэ үү.');
       });
     }
   })();
@@ -1331,6 +1333,7 @@
       const openBtn = document.getElementById('mentorModalTrigger');
       const closeBtn = document.getElementById('mentorDialogClose');
       const cancelBtn = document.getElementById('mentorDialogCancel');
+      const form = document.getElementById('mentorForm');
 
       function openModal() {
         if (!modal) return;
@@ -1347,9 +1350,47 @@
       if (openBtn) openBtn.addEventListener('click', openModal);
       if (closeBtn) closeBtn.addEventListener('click', closeModal);
       if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+      if (form) {
+        form.addEventListener('submit', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          closeModal();
+          notify('Демо маягт тул хүсэлт илгээгдээгүй, хадгалагдаагүй.');
+        });
+      }
     })();
   
       }
+    },
+    '27': {
+      expose: [],
+      init: function () {}
+    },
+    '28': {
+      expose: [],
+      init: function (document) {
+        var form = document.getElementById('contact-inquiry-form');
+        if (!form) return;
+        form.addEventListener('submit', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          var data = new FormData(form);
+          var subject = 'EduPulse үнийн санал - ' + String(data.get('plan') || 'course');
+          var body = [
+            'Нэр: ' + String(data.get('name') || ''),
+            'Имэйл: ' + String(data.get('email') || ''),
+            'Сонголт: ' + String(data.get('plan') || ''),
+            'Зурвас: ' + String(data.get('message') || '')
+          ].join('\n');
+          window.location.href = 'mailto:support@edupulse.mn?subject=' +
+            encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+          notify('Имэйл програмд хүсэлтийн ноорог нээгдэх бөгөөд илгээхийг та баталгаажуулна.');
+        });
+      }
+    },
+    '29': {
+      expose: [],
+      init: function () {}
     }
   };
 
@@ -1357,8 +1398,179 @@
      3. Mounting
      --------------------------------------------------------------------- */
   var app = document.getElementById('ep-app');
+  var pagePicker = document.getElementById('ep-page-picker');
   var current = null;   // { id, root, sandbox }
+  var currentLessonContext = null;
   var epDarkMode = window.localStorage.getItem('ep-theme') === 'dark';
+  var CART_STORAGE_KEY = 'ep-cart-items';
+
+  function readCart() {
+    var stored = window.localStorage.getItem(CART_STORAGE_KEY);
+    if (!stored) return [];
+
+    try {
+      var items = JSON.parse(stored);
+      if (!Array.isArray(items)) throw new Error('Stored cart is not an array.');
+      return items.filter(function (item) {
+        return item && typeof item.id === 'string' &&
+          typeof item.title === 'string' && Number.isFinite(Number(item.price));
+      });
+    } catch (error) {
+      console.error('Unable to read the saved cart.', error);
+      notify('Сагсны мэдээллийг уншихад алдаа гарлаа.');
+      return [];
+    }
+  }
+
+  function writeCart(items) {
+    try {
+      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+      syncCartBadge();
+      return true;
+    } catch (error) {
+      console.error('Unable to save the cart.', error);
+      notify('Сагсыг хадгалах боломжгүй байна.');
+      return false;
+    }
+  }
+
+  function formatCartPrice(amount) {
+    return new Intl.NumberFormat('mn-MN').format(amount) + '₮';
+  }
+
+  function updateCartCount(root, count) {
+    if (!root) return;
+    root.querySelectorAll('[data-cart-count]').forEach(function (badge) {
+      badge.textContent = String(count);
+    });
+  }
+
+  function cartItemFromButton(button) {
+    var card = button.closest('.group');
+    if (!card) return null;
+
+    var title = card.querySelector('h3');
+    var currentPrice = card.querySelector('.font-headline-sm.text-headline-sm.text-primary.font-bold');
+    var originalPrice = card.querySelector('.line-through');
+    var instructor = card.querySelector('.font-label-md.text-label-md.text-on-surface.font-semibold') ||
+      card.querySelector('img.rounded-full + span');
+    var image = card.querySelector('img');
+    var price = currentPrice ? Number(currentPrice.textContent.replace(/[^\d]/g, '')) : 0;
+    if (!title || !currentPrice || !price) return null;
+
+    return {
+      id: title.textContent.trim(),
+      title: title.textContent.trim(),
+      instructor: instructor ? instructor.textContent.trim() : '',
+      price: price,
+      originalPrice: originalPrice ? Number(originalPrice.textContent.replace(/[^\d]/g, '')) : price,
+      image: image ? image.getAttribute('src') : ''
+    };
+  }
+
+  function renderCartPage(root) {
+    var container = root.querySelector('#cart-items-container');
+    if (!container) return;
+
+    var items = readCart();
+    var count = root.querySelector('#cart-count-display');
+    if (count) count.textContent = String(items.length);
+    var headerCount = root.querySelector('#checkout-header-cart-count');
+    if (headerCount) headerCount.textContent = String(items.length);
+    updateCartCount(root, items.length);
+
+    var total = 0;
+    var originalTotal = 0;
+    container.innerHTML = '';
+    if (!items.length) {
+      container.innerHTML = '<div class="rounded-lg bg-surface-container-high p-space-lg text-center"><p class="font-body-md text-body-md text-on-surface-variant">Таны сагс хоосон байна. Сургалт сонгож нэмнэ үү.</p><a class="mt-space-sm inline-flex items-center gap-1 font-label-md text-label-md text-primary" href="#p03">Сургалт сонгох <span class="material-symbols-outlined text-[18px]">arrow_forward</span></a></div>';
+    }
+
+    items.forEach(function (item) {
+      var row = document.createElement('article');
+      row.className = 'bg-surface-container-high rounded-lg p-space-md flex flex-col sm:flex-row gap-space-md';
+      row.setAttribute('data-cart-item', item.id);
+
+      var image = document.createElement('img');
+      image.className = 'w-full sm:w-44 h-28 rounded-lg object-cover bg-surface-container-lowest';
+      image.alt = item.title;
+      if (item.image) image.src = item.image;
+
+      var imageWrap = document.createElement('div');
+      imageWrap.className = 'w-full sm:w-44 h-28 shrink-0';
+      if (item.image) {
+        imageWrap.appendChild(image);
+      } else {
+        imageWrap.className += ' flex items-center justify-center rounded-lg bg-surface-container-lowest text-primary';
+        imageWrap.innerHTML = '<span class="material-symbols-outlined text-[40px]">' +
+          (item.kind === 'plan' ? 'workspace_premium' : 'school') + '</span>';
+      }
+
+      var details = document.createElement('div');
+      details.className = 'flex flex-col justify-between flex-1 min-w-0';
+      var heading = document.createElement('div');
+      heading.className = 'flex items-start justify-between gap-space-sm';
+      var title = document.createElement('h3');
+      title.className = 'font-title-md text-title-md text-primary leading-tight';
+      title.textContent = item.title;
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'text-on-surface-variant hover:text-primary p-1 rounded transition-colors shrink-0';
+      remove.setAttribute('aria-label', 'Хасах');
+      remove.setAttribute('data-cart-remove', item.id);
+      remove.innerHTML = '<span class="material-symbols-outlined text-[20px]">delete_outline</span>';
+      heading.appendChild(title);
+      heading.appendChild(remove);
+
+      var instructor = document.createElement('p');
+      instructor.className = 'pt-2 font-body-sm text-body-sm text-on-surface-variant';
+      instructor.textContent = item.instructor;
+      var price = document.createElement('p');
+      price.className = 'pt-space-sm font-headline-sm text-headline-sm text-primary font-bold';
+      price.textContent = formatCartPrice(Number(item.price));
+      details.appendChild(heading);
+      if (item.instructor) details.appendChild(instructor);
+      details.appendChild(price);
+      row.appendChild(imageWrap);
+      row.appendChild(details);
+      container.appendChild(row);
+
+      total += Number(item.price);
+      originalTotal += Number(item.originalPrice) || Number(item.price);
+    });
+
+    var extras = root.querySelector('[data-ep-cart-extras]');
+    if (!extras) {
+      extras = document.createElement('div');
+      extras.setAttribute('data-ep-cart-extras', '');
+      extras.className = 'flex flex-wrap items-center gap-space-md pt-space-sm';
+      extras.innerHTML =
+        '<a class="inline-flex items-center gap-1 font-label-md text-label-md text-primary" href="#p03">' +
+        '<span class="material-symbols-outlined text-[18px]">arrow_back</span>Сургалт нэмэх</a>' +
+        '<a class="inline-flex items-center gap-1 font-label-md text-label-md text-primary" href="#p13">' +
+        'Бүх сургалтад хандах гишүүнчлэл үзэх<span class="material-symbols-outlined text-[18px]">arrow_forward</span></a>';
+      container.parentNode.insertBefore(extras, container.nextSibling);
+    }
+
+    var values = {
+      '#cart-original-total': formatCartPrice(originalTotal),
+      '#cart-discount-total': originalTotal > total ? '-' + formatCartPrice(originalTotal - total) : formatCartPrice(0),
+      '#cart-current-total': formatCartPrice(total),
+      '#cart-coupon-discount': formatCartPrice(0),
+      '#cart-payable-total': formatCartPrice(total)
+    };
+    Object.keys(values).forEach(function (selector) {
+      var element = root.querySelector(selector);
+      if (element) element.textContent = values[selector];
+    });
+
+    var checkout = root.querySelector('[data-cart-checkout]');
+    if (checkout) {
+      checkout.disabled = !items.length;
+      checkout.classList.toggle('opacity-50', !items.length);
+      checkout.classList.toggle('cursor-not-allowed', !items.length);
+    }
+  }
 
   function applyTheme(isDark, persist) {
     epDarkMode = isDark;
@@ -1394,7 +1606,10 @@
   function mount(id) {
     var tpl = templateFor(id);
     if (!tpl) return;
+    var fromId = current ? current.id : null;
     unmount();
+    if (fromId && fromId !== id && INFO_PAGES.indexOf(fromId) === -1) referrerPageId = fromId;
+    closeAccountMenu();
 
     var root = document.createElement('div');
     root.setAttribute('data-page', id);
@@ -1405,6 +1620,12 @@
     body.appendChild(tpl.content.cloneNode(true));
     root.appendChild(body);
     app.appendChild(root);
+
+    root.querySelectorAll('footer h2, footer h3, footer h4, footer span').forEach(function (heading) {
+      if (heading.textContent.trim() === 'Сургалтын хөтөлбөр' && heading.parentElement) {
+        heading.parentElement.remove();
+      }
+    });
 
     var sandbox = { listeners: [], timers: [], exposed: [] };
     epActive = sandbox;
@@ -1422,12 +1643,394 @@
         console.error('[EduPulse] page ' + id + ' failed to start:', err);
       }
     }
+    try {
+      runMountHooks(id, root);
+    } catch (err) {
+      console.error('[EduPulse] page ' + id + ' flow hooks failed:', err);
+    }
     updateNavigation(id);
   }
 
   /* ---------------------------------------------------------------------
      4. Navigation
      --------------------------------------------------------------------- */
+  /* ---------------------------------------------------------------------
+     4a. Site flow: how the pages connect, like a real website.
+
+     Journeys covered (each page has at least one way in and one way out):
+       Discover -> buy : 01 -> 03 -> 04 -> 10 -> 11 -> 14 / 22 / 07
+       Membership      : 13 -> 10 -> 11 -> 14        (Enterprise -> 28)
+       Billing         : 14 <-> 19 (payment methods), 14 -> 13, 14 -> 28
+       Learning        : 07 -> 22 / 05 -> 18 -> 08 -> 12 -> 29
+       Teaching        : 17 -> 15 -> 04 (preview), 20 <- 04
+       Help / legal    : any page -> 23 -> 28, footer -> 26 / 27 (back to the
+                         page you came from)
+       Account menu    : avatar / header button -> 09, 07, 12, 14, 19, 17, 24, 23, 02
+     --------------------------------------------------------------------- */
+  var PAGE_NAMES = {
+    '01': 'Нүүр',
+    '02': 'Нэвтрэх, бүртгүүлэх',
+    '03': 'Сургалтын каталог',
+    '04': 'Сургалтын дэлгэрэнгүй',
+    '05': 'Хичээлийн материал',
+    '07': 'Миний сургалт',
+    '08': 'Даалгавар, код шалгах',
+    '09': 'Оюутны профайл',
+    '10': 'Сагс',
+    '11': 'Захиалгын амжилт',
+    '12': 'Сургалтын аналитик',
+    '13': 'Үнийн багц',
+    '14': 'Төлбөр, нэхэмжлэх',
+    '15': 'Сургалт үүсгэх',
+    '16': 'Оюутны нийгэмлэг',
+    '17': 'Багшийн самбар',
+    '18': 'Сорил',
+    '19': 'Хэрэглэгчийн тохиргоо',
+    '20': 'Багшийн профайл',
+    '21': 'Төслийн сан',
+    '22': 'Хичээл үзэх',
+    '23': 'Тусламж',
+    '24': 'Мэдэгдэл',
+    '25': 'Бидний тухай',
+    '26': 'Үйлчилгээний нөхцөл',
+    '27': 'Нууцлалын бодлого',
+    '28': 'Холбоо барих',
+    '29': 'Жишээ сертификат'
+  };
+
+  var referrerPageId = null;       // last "real" page before a legal/info page
+  var pendingSettingsTab = '';     // tab to open when page 19 mounts
+  var INFO_PAGES = ['26', '27', '28', '29'];
+
+  /* "home Нүүр" -> "Нүүр", "Дэлгэрэнгүй arrow_forward" -> "Дэлгэрэнгүй" */
+  function plainLabel(text) {
+    var s = String(text || '').replace(/\s+/g, ' ').trim();
+    s = s.replace(/^[a-z]+(?:_[a-z]+)*(?=[^\u0000-\u007f])/, '');
+    s = s.replace(/^[a-z]+(?:_[a-z]+)*\s+(?=[^\u0000-\u007f])/, '');
+    s = s.replace(/([^\u0000-\u007f])\s+[a-z]+(?:_[a-z]+)*$/, '$1');
+    return s.trim();
+  }
+
+  /* Icon-only links ("open_in_new") are named by their aria-label / title */
+  function routeLabel(target) {
+    var text = (target.textContent || '').replace(/\s+/g, ' ').trim();
+    var named = target.getAttribute('aria-label') || target.getAttribute('title') || '';
+    if (named && (!text || /^[a-z_]+(?: [a-z_]+)*$/.test(text))) return named;
+    return text;
+  }
+
+  function openSettingsTab(tabText) {
+    return function () {
+      pendingSettingsTab = tabText;
+      return '19';
+    };
+  }
+
+  var BRAND_RE = /^(?:[a-z]\s?|code|school)?edupulse$/i;
+
+  /* [pages it applies to (null = every page), label pattern, destination] */
+  var FLOW_RULES = [
+    // every page
+    [null, BRAND_RE, '01'],
+    [null, /^(сагс|миний сагс|cart)$/i, '10'],
+    [null, /^(түгээмэл асуултууд|тусламжийн төв)$/i, '23'],
+    [null, /багшлах хүсэлт/i, '17'],
+    [null, /байгууллагын сургалт|байгууллагаар авах|байгууллагаа/i, '13'],
+    [null, /^бүртгэл цуцлах$/i, '14'],
+    [null, /ажлын байрны зуучлал|ажилд зуучлах/i, '21'],
+    [null, /интерактив лаборатори|код шалгах автомат машин/i, '08'],
+    [null, /шуурхай чат/i, '24'],
+    [null, /discord/i, '16'],
+    [null, /дэлгэрэнгүй журам/i, '26'],
+    [null, /^гарах$/i, '02'],
+    [null, /^forum$/i, '16'],
+    [null, /^terminal$/i, '08'],
+    [null, /^dataset$/i, '12'],
+    // dashboard sidebar: links to the page you are already on
+    [['07'], /^(хяналтын самбар|миний сургалтууд)$/i, '07'],
+    // landing
+    [['01'], /үнэгүй хичээл үзэх/i, '22'],
+    [['01'], /^хичээл сонгох$/i, '03'],
+    [['01'], /бүх ангиллыг харах/i, '03'],
+    // course detail
+    [['04'], /^видео танилцуулга үзэх$/i, '22'],
+    [['04'], /^(программчлал|сургалтууд)$/i, '03'],
+    // learning
+    [['05', '22'], /ментортой холбогдох/i, '20'],
+    [['08'], /full-stack web/i, '04'],
+    [['08'], /^модуль \d+$/i, '22'],
+    [['08'], /^api docs$/i, '23'],
+    // student profile
+    [['09'], /^холбогдох$/i, '24'],
+    [['09'], /баталгаажуулалтын лавлагаа|^verify/i, '29'],
+    [['09'], /docs & demo/i, '21'],
+    // purchase done -> invoices
+    [['11'], /нэхэмжлэх|и-баримт/i, '14'],
+    // analytics
+    [['12'], /бүх шалгалтыг үзэх/i, '18'],
+    // billing -> payment methods
+    [['14'], /карт холбох/i, openSettingsTab('төлбөрийн хэрэгсэл')],
+    // instructor side
+    [['15'], /урьдчилан харах/i, '04'],
+    [['17'], /үргэлжлүүлэн засварлах/i, '15'],
+    [['17'], /статистик харах/i, '12'],
+    [['17'], /бүх \d+ асуултыг нээх/i, '16'],
+    [['17'], /^хариулах$/i, '24'],
+    // community / showcase
+    [['16'], /бүрэн дүрэм журам/i, '26'],
+    [['16'], /онооны самбар/i, '21'],
+    [['21'], /тавигдах шаардлага унших/i, '23'],
+    [['21'], /төсөл илгээх/i, '08'],
+    [['21'], /хуудас руу ор/i, '09'],
+    // help center categories
+    [['23'], /төлбөр, нэхэмжлэх/i, '14'],
+    [['23'], /байгууллагын захиалга/i, '13'],
+    [['23'], /хэрэглэгчийн эрх|нууц үг сэргээх/i, openSettingsTab('аюулгүй байдал')],
+    [['23'], /кодын терминал|даалгавар илгээх/i, '08'],
+    [['23'], /багш болох/i, '17'],
+    [['23'], /сургалт эхлүүлэх/i, '22'],
+    [['23'], /тикет үүсгэх/i, '28'],
+    // notifications
+    [['24'], /мэдэгдлийн тохиргоо/i, openSettingsTab('мэдэгдлийн тохиргоо')],
+    [['24'], /сургалтын лавлагаа харах/i, '22']
+  ];
+
+  function flowRoute(target, label) {
+    if (!current) return null;
+    var plain = plainLabel(label);
+    for (var i = 0; i < FLOW_RULES.length; i++) {
+      var rule = FLOW_RULES[i];
+      if (rule[0] && rule[0].indexOf(current.id) === -1) continue;
+      if (rule[1].test(plain) || rule[1].test(label)) {
+        var dest = typeof rule[2] === 'function' ? rule[2](target, plain) : rule[2];
+        if (dest) return dest;
+      }
+    }
+    return null;
+  }
+
+  /* ---- cart helpers -------------------------------------------------- */
+  function syncCartBadge() {
+    var count = readCart().length;
+    document.querySelectorAll('[data-ep-cart-badge]').forEach(function (badge) {
+      badge.textContent = String(count);
+      badge.classList.toggle('is-empty', !count);
+    });
+  }
+
+  function cartHas(id) {
+    return readCart().some(function (item) { return item.id === id; });
+  }
+
+  /* The course shown on the detail page (04) -> a cart item */
+  function cartItemFromDetail(root) {
+    var title = root.querySelector('h1');
+    var priceEl = Array.from(root.querySelectorAll('.text-display-hero-mobile')).find(function (el) {
+      return /₮/.test(el.textContent);
+    });
+    var price = priceEl ? Number(priceEl.textContent.replace(/[^\d]/g, '')) : 0;
+    if (!title || !price) return null;
+    var oldEl = priceEl.parentElement ? priceEl.parentElement.querySelector('.line-through') : null;
+    var heading = Array.from(root.querySelectorAll('h2')).find(function (h) {
+      return /багшийн танилцуулга/i.test(h.textContent);
+    });
+    var teacher = heading && heading.parentElement ? heading.parentElement.querySelector('h3') : null;
+    var image = root.querySelector('img.w-full.h-full.object-cover');
+    var text = title.textContent.replace(/\s+/g, ' ').trim();
+    return {
+      id: text,
+      title: text,
+      instructor: teacher ? teacher.textContent.replace(/\s+/g, ' ').replace(/^verified\s*/i, '').trim() : '',
+      price: price,
+      originalPrice: oldEl ? (Number(oldEl.textContent.replace(/[^\d]/g, '')) || price) : price,
+      image: image ? image.getAttribute('src') || '' : ''
+    };
+  }
+
+  /* A membership plan chosen on the pricing page (13) -> a cart item */
+  function cartItemFromPlan(root, plan) {
+    var price = root.querySelector('#' + plan + 'Price');
+    var period = root.querySelector('#' + plan + 'Period');
+    var amount = price ? Number(price.textContent.replace(/[^\d]/g, '')) : 0;
+    if (!amount) return null;
+    var yearly = !!(period && /жил/i.test(period.textContent));
+    var name = plan === 'ultra' ? 'Ultra' : 'Premium';
+    return {
+      id: 'plan:' + plan,
+      kind: 'plan',
+      title: name + ' багц (' + (yearly ? 'жилээр' : 'сараар') + ')',
+      instructor: 'EduPulse гишүүнчлэл',
+      price: amount,
+      originalPrice: yearly ? amount / 0.8 : amount,
+      image: ''
+    };
+  }
+
+  /* Once something is in the cart the button becomes "go to cart" */
+  function markAdded(button) {
+    button.setAttribute('data-ep-added', 'true');
+    button.setAttribute('aria-label', 'Сагс руу очих');
+    button.setAttribute('title', 'Сагс руу очих');
+    if (button.hasAttribute('data-cart-detail')) {
+      button.innerHTML = '<span class="material-symbols-outlined text-[20px] text-primary">shopping_cart_checkout</span> Сагс руу очих';
+    } else {
+      var icon = button.querySelector('.material-symbols-outlined');
+      if (icon) icon.textContent = 'shopping_cart_checkout';
+    }
+  }
+
+  function syncAddedButtons(root) {
+    root.querySelectorAll('[data-cart-add]').forEach(function (button) {
+      var item = cartItemFromButton(button);
+      if (item && cartHas(item.id)) markAdded(button);
+    });
+    var detail = root.querySelector('[data-cart-detail="add"]');
+    if (detail) {
+      var item = cartItemFromDetail(root);
+      if (item && cartHas(item.id)) markAdded(detail);
+    }
+  }
+
+  function isCourseCard(card) {
+    return !!(card && card.querySelector('h3') && card.querySelector('[data-cart-add]'));
+  }
+
+  /* ---- account menu (avatar / header button) ------------------------- */
+  var ACCOUNT_LINKS = [
+    ['person', 'Нийтийн профайл', '09'],
+    ['school', 'Миний сургалт', '07'],
+    ['insights', 'Суралцах аналитик', '12'],
+    ['receipt_long', 'Төлбөр, нэхэмжлэх', '14'],
+    ['settings', 'Тохиргоо', '19'],
+    ['cast_for_education', 'Багшийн самбар', '17'],
+    ['notifications', 'Мэдэгдэл, чат', '24'],
+    ['help', 'Тусламж', '23'],
+    ['logout', 'Системээс гарах', '02']
+  ];
+  var accountMenu = null;
+
+  function buildAccountMenu() {
+    accountMenu = document.createElement('div');
+    accountMenu.id = 'ep-account-menu';
+    accountMenu.setAttribute('role', 'menu');
+    accountMenu.hidden = true;
+    accountMenu.innerHTML = ACCOUNT_LINKS.map(function (row) {
+      return '<a role="menuitem" href="#p' + row[2] + '" data-ep-menu-go="' + row[2] + '">' +
+        '<span class="material-symbols-outlined" aria-hidden="true">' + row[0] + '</span>' + row[1] + '</a>';
+    }).join('');
+    document.body.appendChild(accountMenu);
+    accountMenu.addEventListener('click', function (e) {
+      var link = e.target.closest('[data-ep-menu-go]');
+      if (!link) return;
+      e.preventDefault();
+      closeAccountMenu();
+      go(link.getAttribute('data-ep-menu-go'), true);
+    });
+  }
+
+  function closeAccountMenu() {
+    if (!accountMenu || accountMenu.hidden) return;
+    accountMenu.hidden = true;
+    var trigger = document.getElementById('ep-account-btn');
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  }
+
+  function toggleAccountMenu() {
+    if (!accountMenu) return;
+    accountMenu.hidden = !accountMenu.hidden;
+    var trigger = document.getElementById('ep-account-btn');
+    if (trigger) trigger.setAttribute('aria-expanded', String(!accountMenu.hidden));
+  }
+
+  /* ---- things that run right after a page is mounted ------------------ */
+  function runMountHooks(id, root) {
+    syncCartBadge();
+    syncAddedButtons(root);
+
+    // course cards open the course page, so they look clickable
+    if (id === '01' || id === '03') {
+      root.querySelectorAll('.group').forEach(function (card) {
+        if (isCourseCard(card)) card.style.cursor = 'pointer';
+      });
+    }
+
+    if (id === '04') {
+      var heading = Array.from(root.querySelectorAll('h2')).find(function (h) {
+        return /багшийн танилцуулга/i.test(h.textContent);
+      });
+      if (heading && heading.parentElement && !heading.parentElement.querySelector('[data-ep-teacher-link]')) {
+        var more = document.createElement('a');
+        more.href = '#p20';
+        more.setAttribute('data-ep-teacher-link', '');
+        more.className = 'mt-space-sm inline-flex items-center gap-1 font-label-md text-label-md text-primary';
+        more.innerHTML = 'Багшийн профайл үзэх <span class="material-symbols-outlined text-[18px]">arrow_forward</span>';
+        heading.parentElement.appendChild(more);
+      }
+    }
+
+    if (id === '13') {
+      root.querySelectorAll('.faq-content').forEach(function (answer) {
+        if (/и-баримт/i.test(answer.textContent) && !answer.querySelector('[data-ep-invoice-link]')) {
+          var link = document.createElement('a');
+          link.href = '#p14';
+          link.setAttribute('data-ep-invoice-link', '');
+          link.className = 'mt-space-sm inline-flex items-center gap-1 font-label-md text-label-md text-primary';
+          link.innerHTML = 'Нэхэмжлэх, и-баримтуудаа харах <span class="material-symbols-outlined text-[18px]">arrow_forward</span>';
+          answer.appendChild(link);
+        }
+      });
+    }
+
+    if (id === '19' && pendingSettingsTab) {
+      var wanted = pendingSettingsTab.toLowerCase();
+      pendingSettingsTab = '';
+      var tab = Array.from(root.querySelectorAll('button')).find(function (button) {
+        return buttonLabel(button).toLowerCase().indexOf(wanted) !== -1;
+      });
+      if (tab) tab.click();
+    }
+
+    if (id === '28') {
+      var intro = root.querySelector('.terms-content');
+      if (intro && !intro.querySelector('[data-ep-faq-hint]')) {
+        var hint = document.createElement('p');
+        hint.setAttribute('data-ep-faq-hint', '');
+        hint.className = 'font-body-md text-body-md text-on-surface-variant mt-space-md';
+        hint.innerHTML = 'Түргэн хариулт хэрэгтэй бол эхлээд <a class="text-primary font-semibold" href="#p23">Түгээмэл асуултууд</a>-ыг үзээрэй.';
+        var firstTitle = intro.querySelector('h2');
+        if (firstTitle && firstTitle.nextElementSibling) firstTitle.nextElementSibling.insertAdjacentElement('afterend', hint);
+        else intro.appendChild(hint);
+      }
+    }
+
+    // legal / contact pages: "back" goes to the page the visitor came from
+    var back = root.querySelector('.terms-back-link');
+    if (back && referrerPageId && referrerPageId !== id && PAGE_NAMES[referrerPageId]) {
+      back.setAttribute('href', '#p' + referrerPageId);
+      back.innerHTML = '<span class="material-symbols-outlined" aria-hidden="true">arrow_back</span> ' +
+        PAGE_NAMES[referrerPageId] + ' руу буцах';
+    }
+  }
+
+  /* Lesson rows on the lesson pages ("4.4 Custom Hooks ...") switch the lesson in place */
+  function lessonFromLabel(label) {
+    var match = /(\d+\.\d+)\s+([^\d].*?)(?:\s+\d{1,2}:\d{2}.*)?$/.exec(label.replace(/\s+/g, ' '));
+    if (!match) return null;
+    var title = match[2]
+      .replace(/\s+[a-z]+(?:_[a-z]+)+$/, '')          // trailing icon name, e.g. "chevron_right"
+      .replace(/\s+\d+\s*(мин|min).*$/i, '')
+      .replace(/\s*[✔✓]\s*$/, '')
+      .trim();
+    return { number: match[1], title: title };
+  }
+
+  function openLesson(lesson) {
+    var heading = current && current.root.querySelector('h1');
+    if (heading) heading.textContent = lesson.title;
+    window.scrollTo(0, 0);
+    notify('Хичээл ' + lesson.number + ' нээгдлээ.');
+  }
+
   var PATHS = {
     nuur: '01',
     surgaltuud: '03',
@@ -1437,10 +2040,10 @@
     tosluud: '21',
     une: '13',
     'khamt-olon': '25',
-    nuutslal: '19',
+    nuutslal: '27',
     'uilchilgeenii-nohtsol': '26',
     daalgavar: '08',
-    'amjilt-sertefikat': '07',
+    'amjilt-sertefikat': '29',
     tohirgoo: '19',
     nuhtsul: '26'
   };
@@ -1452,6 +2055,7 @@
 
   function go(id, push) {
     if (!templateFor(id)) return;
+    if (current && current.id === id && push) window.scrollTo(0, 0);
     if (!current || current.id !== id) mount(id);
     var hash = '#p' + id;
     if (location.hash !== hash) {
@@ -1468,25 +2072,54 @@
         link.removeAttribute('aria-current');
       }
     });
+    if (pagePicker) pagePicker.value = id;
   }
+
+  function initPagePicker() {
+    if (!pagePicker) return;
+
+    var pageNames = PAGE_NAMES;
+
+    Array.from(document.querySelectorAll('template[data-page-id]'))
+      .sort(function (a, b) {
+        return Number(a.getAttribute('data-page-id')) - Number(b.getAttribute('data-page-id'));
+      })
+      .forEach(function (template) {
+        var id = template.getAttribute('data-page-id');
+        var option = document.createElement('option');
+        option.value = id;
+        option.textContent = id + ' · ' + (pageNames[id] || template.getAttribute('data-label') || 'Хуудас');
+        pagePicker.appendChild(option);
+      });
+
+    pagePicker.addEventListener('change', function () {
+      if (this.value) go(this.value, true);
+    });
+  }
+
+  initPagePicker();
 
   function contextualRoute(target, label) {
     if (!current) return null;
+    var flowDestination = flowRoute(target, label);
+    if (flowDestination) return flowDestination;
+    label = plainLabel(label);
     if (/^нүүр$/i.test(label)) return '01';
     if (/мэдэгдэл|notifications/i.test(label)) return '24';
     if (/^(нэвтрэх|бүртгүүлэх|анкет оруулах|системээс гарах)$/i.test(label)) return '02';
     if (/тусламж|help center|шууд чат эхлүүлэх/i.test(label)) return '23';
+    if (/багц.*(авах|сонгох)|гишүүн болох|membership/i.test(label)) return '13';
     if (/^(нийгэмлэг|хэлэлцүүлэг|community)$/i.test(label)) return '16';
-    if (/^(үнэ|үнийн багц|pricing)$/i.test(label)) return '13';
+    if (/^(үнэ|үнийн багц|үнийн санал|pricing)$/i.test(label)) return '13';
     if (/^(төлбөр|нэхэмжлэх|и-баримт)$/i.test(label)) return '14';
     if (/^(профайл|тохиргоо|хувийн мэдээлэл)$/i.test(label)) return '19';
-    if (/нууцлал/i.test(label)) return '19';
+    if (/нууцлал/i.test(label)) return '27';
+    if (/холбоо барих/i.test(label)) return '28';
     if (/үйлчилгээний нөхцөл|^нөхцөл$/i.test(label)) return '26';
     if (/^(даалгавар|даалгаврууд|assignment)$/i.test(label)) return '08';
-    if (/сертификат/i.test(label)) return '07';
+    if (/сертификат/i.test(label)) return '29';
     if (/^(хичээлүүд|хичээл үзэх|хичээл эхлүүлэх)$/i.test(label)) return '22';
     if (/^(хөтөлбөрүүд|сургалтууд|сургалтын каталог)$/i.test(label)) return '03';
-    if (/^(ажлын байр|карьер төв)$/i.test(label)) return '06';
     if (/^(түншүүд|бидний тухай|хамт олон)$/i.test(label)) return '25';
     if (/менторшип/i.test(label)) return '20';
     if (current.id === '07' && /бүгдийг харах/i.test(label)) return '03';
@@ -1502,7 +2135,6 @@
     if (current.id === '11' && /(dashboard|суралцах самбар)/i.test(label)) return '07';
     if (current.id === '11' && /(хичээл|сургалтаа эхлүүлэх|үргэлжлүүлэх|эхлэх)/i.test(label)) return '07';
     if (current.id === '07' && /(хичээл|үргэлжлүүлэн суралцах|сургалтаа үргэлжлүүлэх|continue learning)/i.test(label)) return '22';
-    if (current.id === '06' && /(ментортой цаг товлох|багштай уулзах)/i.test(label)) return '20';
     if ((current.id === '05' || current.id === '22') && /(сорил|quiz)/i.test(label)) return '18';
     if ((current.id === '05' || current.id === '22') && /(даалгавар|илгээх|assignment)/i.test(label)) return '08';
     if (current.id === '18' && /(суралцах самбар|dashboard)/i.test(label)) return '07';
@@ -1536,8 +2168,78 @@
     button.classList.toggle('is-active', pressed);
   }
 
+  function getCatalogCards(root) {
+    var detailButtons = Array.from(root.querySelectorAll('button')).filter(function (button) {
+      return /дэлгэрэнгүй/i.test(buttonLabel(button));
+    });
+    return Array.from(new Set(detailButtons.map(function (button) {
+      return button.closest('.group') || button.closest('article') || button.parentElement;
+    }).filter(Boolean)));
+  }
+
+  function setCatalogPriceFilter(root, value) {
+    root.querySelectorAll('#filter-sidebar [data-price-filter]').forEach(function (button) {
+      var selected = button.getAttribute('data-price-filter') === value;
+      button.setAttribute('aria-pressed', String(selected));
+      button.classList.toggle('bg-surface-container-high', selected);
+      button.classList.toggle('text-primary', selected);
+      button.classList.toggle('bg-surface-container-low', !selected);
+      button.classList.toggle('text-on-surface-variant', !selected);
+    });
+  }
+
+  function applyCatalogFilters(query) {
+    if (!current || current.id !== '03') return;
+    var root = current.root;
+    var categories = Array.from(root.querySelectorAll('input[name="course-category"]:checked')).map(function (input) { return input.value; });
+    var levels = Array.from(root.querySelectorAll('input[name="course-level"]:checked')).map(function (input) { return input.value; });
+    var formats = Array.from(root.querySelectorAll('input[name="course-format"]:checked')).map(function (input) { return input.value; });
+    var duration = root.querySelector('input[name="duration"]:checked');
+    var minimumRating = root.querySelector('input[name="rating_filter"]:checked');
+    var priceFilter = root.querySelector('#filter-sidebar [data-price-filter][aria-pressed="true"]');
+    var visibleCount = 0;
+    var normalizedQuery = (query || '').trim().toLowerCase();
+
+    getCatalogCards(root).forEach(function (card) {
+      if (!card.hasAttribute('data-ep-original-hidden')) {
+        card.setAttribute('data-ep-original-hidden', String(card.classList.contains('hidden')));
+      }
+      var categoriesOnCard = (card.dataset.courseCategories || '').split(/\s+/);
+      var levelsOnCard = (card.dataset.courseLevels || '').split(/\s+/);
+      var formatsOnCard = (card.dataset.courseFormats || '').split(/\s+/);
+      var hours = Number(card.dataset.courseDuration);
+      var rating = Number(card.dataset.courseRating);
+      var cardPrice = card.dataset.coursePrice;
+      var matchesDuration = !duration ||
+        (duration.value === 'short' && hours <= 2) ||
+        (duration.value === 'standard' && hours >= 3 && hours <= 6) ||
+        (duration.value === 'long' && hours >= 10);
+      var matchesPrice = !priceFilter || priceFilter.dataset.priceFilter === 'all' ||
+        (priceFilter.dataset.priceFilter === 'free' && cardPrice === 'free') ||
+        (priceFilter.dataset.priceFilter === 'discounted' && cardPrice === 'discounted') ||
+        (priceFilter.dataset.priceFilter === 'paid' && cardPrice !== 'free');
+      var matches = (!categories.length || categories.some(function (value) { return categoriesOnCard.includes(value); })) &&
+        (!levels.length || levels.some(function (value) { return levelsOnCard.includes(value); })) &&
+        matchesDuration &&
+        (!formats.length || formats.some(function (value) { return formatsOnCard.includes(value); })) &&
+        (!minimumRating || rating >= Number(minimumRating.value)) &&
+        matchesPrice &&
+        (!normalizedQuery || card.textContent.toLowerCase().includes(normalizedQuery));
+      var originallyHidden = card.getAttribute('data-ep-original-hidden') === 'true';
+      card.classList.toggle('hidden', originallyHidden || !matches);
+      if (!originallyHidden && matches) visibleCount++;
+    });
+
+    var visibleRange = root.querySelector('#catalog-visible-range');
+    if (visibleRange) visibleRange.textContent = visibleCount ? '1 - ' + visibleCount : '0';
+  }
+
   function filterVisibleItems(query) {
     if (!current) return;
+    if (current.id === '03') {
+      applyCatalogFilters(query);
+      return;
+    }
     var root = current.root;
     var items = [];
     if (current.id === '03') {
@@ -1547,8 +2249,6 @@
       items = detailButtons.map(function (button) {
         return button.closest('.group') || button.closest('article') || button.parentElement;
       });
-    } else if (current.id === '06') {
-      items = Array.from(root.querySelectorAll('article'));
     } else if (current.id === '21') {
       items = Array.from(root.querySelectorAll('.project-card'));
     } else if (current.id === '23') {
@@ -1571,6 +2271,12 @@
   function applyCheckedFilters() {
     if (!current) return;
     var root = current.root;
+    if (current.id === '03') {
+      var searchInput = root.querySelector('input[placeholder*="Хичээлийн нэр"]');
+      applyCatalogFilters(searchInput ? searchInput.value : '');
+      notify('Сонгосон шүүлтүүрээр үр дүнг шинэчиллээ.');
+      return;
+    }
     var items = [];
     var choices = [];
     var checked = Array.from(root.querySelectorAll('input[type="checkbox"]:checked, input[type="radio"]:checked'));
@@ -1587,8 +2293,6 @@
       items = detailButtons.map(function (button) {
         return button.closest('.group') || button.closest('article');
       });
-    } else if (current.id === '06') {
-      items = Array.from(root.querySelectorAll('article'));
     }
 
     items = Array.from(new Set(items.filter(Boolean)));
@@ -1635,33 +2339,17 @@
       if (/^бүгд$/i.test(label)) {
         selectedCourseCategory = '';
         selectedCourseQuery = '';
-        current.root.querySelectorAll('input[type="checkbox"]').forEach(function (input) { input.checked = false; });
+        current.root.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach(function (input) { input.checked = false; });
+        current.root.querySelectorAll('input[type="text"], input[type="search"]').forEach(function (input) { input.value = ''; });
+        setCatalogPriceFilter(current.root, 'all');
         filterVisibleItems('');
         notify('Бүх сургалтыг харуулж байна.');
         return;
       }
       if (/^(үнэгүй|хөнгөлөлттэй|төлбөртэй)$/i.test(label)) {
-        var catalogCards = Array.from(current.root.querySelectorAll('button')).filter(function (candidate) {
-          return /дэлгэрэнгүй/i.test(buttonLabel(candidate));
-        }).map(function (candidate) {
-          return candidate.closest('.group') || candidate.closest('article');
-        }).filter(Boolean);
-        catalogCards = Array.from(new Set(catalogCards));
-        catalogCards.forEach(function (card) {
-          if (!card.hasAttribute('data-ep-original-hidden')) {
-            card.setAttribute('data-ep-original-hidden', String(card.classList.contains('hidden')));
-          }
-          var cardText = card.textContent.toLowerCase();
-          var matches = label === 'Үнэгүй'
-            ? /үнэгүй|free/.test(cardText)
-            : label === 'Хөнгөлөлттэй'
-              ? /хямдрал|sale|₮\s*[\d,]+\s*₮/.test(cardText)
-              : /₮/.test(cardText);
-          card.classList.toggle('hidden', card.getAttribute('data-ep-original-hidden') === 'true' || !matches);
-        });
-        current.root.querySelectorAll('#filter-sidebar button').forEach(function (tab) {
-          tab.classList.toggle('is-active', tab === button);
-        });
+        setCatalogPriceFilter(current.root, button.getAttribute('data-price-filter'));
+        var catalogSearch = current.root.querySelector('input[placeholder*="Хичээлийн нэр"]');
+        applyCatalogFilters(catalogSearch ? catalogSearch.value : '');
         notify(label + ' сургалтуудыг шүүж байна.');
         return;
       }
@@ -1669,11 +2357,12 @@
         go('04', true);
         return;
       }
-      if (/бүгдийг арилгах|цэвэрлэх|refresh/i.test(label)) {
+      if (/бүгдийг арилгах|хайлтыг арилгах|цэвэрлэх|refresh/i.test(label)) {
         selectedCourseCategory = '';
         selectedCourseQuery = '';
-        current.root.querySelectorAll('input[type="checkbox"]').forEach(function (input) { input.checked = false; });
+        current.root.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach(function (input) { input.checked = false; });
         current.root.querySelectorAll('input[type="text"], input[type="search"]').forEach(function (input) { input.value = ''; });
+        setCatalogPriceFilter(current.root, 'all');
         filterVisibleItems('');
         notify('Сургалтын хайлт, шүүлтүүрийг цэвэрлэлээ.');
         return;
@@ -1685,22 +2374,6 @@
           notify(sidebar.classList.contains('hidden') ? 'Шүүлтүүрийг хаалаа.' : 'Шүүлтүүр нээгдлээ.');
           return;
         }
-      }
-    }
-
-    if (pageId === '06') {
-      if (/цэвэрлэх/i.test(label)) {
-        current.root.querySelectorAll('input[type="text"], input[type="search"], input[type="number"]').forEach(function (input) { input.value = ''; });
-        current.root.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach(function (input) { input.checked = false; });
-        filterVisibleItems('');
-        notify('Ажлын байрны хайлт, шүүлтүүрийг цэвэрлэлээ.');
-        return;
-      }
-      if (/bookmark|хадгалах/i.test(lower)) {
-        var saved = button.getAttribute('aria-pressed') !== 'true';
-        setPressed(button, saved);
-        notify(saved ? 'Ажлын байрыг хадгаллаа.' : 'Хадгалсан ажлын байрнаас хаслаа.');
-        return;
       }
     }
 
@@ -1797,6 +2470,11 @@
         notify(darkMode ? 'Хар горимыг идэвхжүүллээ.' : 'Цагаан горимыг идэвхжүүллээ.');
         return;
       }
+    }
+
+    if (pageId === '09' && button.getAttribute('data-ep-auth-required') === 'profile-save') {
+      notify('Нэвтрэлтийн төлөв Unknown тул профайл хадгалах боломжгүй. Эхлээд нэвтэрч профайл үүсгэнэ үү.');
+      return;
     }
 
     if (pageId === '20' && /захиалах|цаг захиалах|18:00|19:00|20:00|21:00/i.test(lower)) {
@@ -1955,16 +2633,215 @@
      --------------------------------------------------------------------- */
   function boot() {
     applyTheme(epDarkMode, false);
+    buildAccountMenu();
+    syncCartBadge();
+    var accountButton = document.getElementById('ep-account-btn');
+    if (accountButton) {
+      accountButton.addEventListener('click', function (e) {
+        e.stopPropagation();
+        toggleAccountMenu();
+      });
+    }
+    document.addEventListener('click', function (e) {
+      if (accountMenu && !accountMenu.hidden &&
+          !e.target.closest('#ep-account-menu, #ep-account-btn, header img[alt="Profile"]')) {
+        closeAccountMenu();
+      }
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeAccountMenu();
+    });
+    window.addEventListener('storage', syncCartBadge);
     document.getElementById('ep-theme-toggle').addEventListener('click', function () {
       applyTheme(!epDarkMode, true);
     });
 
     app.addEventListener('click', function (e) {
+      var planLink = e.target.closest ? e.target.closest('[data-contact-plan]') : null;
+      if (planLink) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        var planName = planLink.getAttribute('data-contact-plan');
+        if (planName === 'premium' || planName === 'ultra') {
+          var planItem = cartItemFromPlan(current.root, planName);
+          if (!planItem) {
+            notify('Багцын үнийг уншиж чадсангүй.');
+            return;
+          }
+          var cartWithPlan = readCart().filter(function (saved) { return saved.id.indexOf('plan:') !== 0; });
+          cartWithPlan.push(planItem);
+          if (!writeCart(cartWithPlan)) return;
+          notify(planItem.title + ' сагсанд нэмэгдлээ.');
+          go('10', true);
+          return;
+        }
+        go('28', true);
+        var planSelect = current && current.root.querySelector('#contact-plan');
+        if (planSelect) planSelect.value = planName;
+        return;
+      }
+
+      var detailButton = e.target.closest ? e.target.closest('[data-cart-detail]') : null;
+      if (detailButton) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (detailButton.getAttribute('data-ep-added') === 'true') {
+          go('10', true);
+          return;
+        }
+        var detailItem = cartItemFromDetail(current.root);
+        if (!detailItem) {
+          notify('Сургалтын мэдээллийг уншиж чадсангүй.');
+          return;
+        }
+        var detailCart = readCart();
+        var alreadyThere = detailCart.some(function (saved) { return saved.id === detailItem.id; });
+        if (!alreadyThere) {
+          detailCart.push(detailItem);
+          if (!writeCart(detailCart)) return;
+        }
+        if (detailButton.getAttribute('data-cart-detail') === 'now') {
+          go('10', true);
+        } else {
+          markAdded(detailButton);
+          updateCartCount(current.root, readCart().length);
+          notify(alreadyThere ? 'Энэ сургалт сагсанд аль хэдийн байна.' : 'Сургалтыг сагсанд нэмлээ.');
+        }
+        return;
+      }
+
+      var featureButton = e.target.closest ? e.target.closest('[data-feature-route]') : null;
+      if (featureButton) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        go(featureButton.getAttribute('data-feature-route'), true);
+        return;
+      }
+
+      var previewButton = e.target.closest ? e.target.closest('[data-lesson-preview]') : null;
+      if (previewButton) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        var previewRow = previewButton.closest('.flex.items-center.justify-between');
+        var previewCourse = current.root.querySelector('h1');
+        var previewLesson = previewRow && previewRow.querySelector('.font-body-sm');
+        currentLessonContext = {
+          course: previewCourse ? previewCourse.textContent.trim() : 'Сургалт',
+          lesson: previewLesson ? previewLesson.textContent.trim() : 'Хичээлийн урьдчилан үзэх'
+        };
+        notify('Энэ хичээлийн урьдчилан үзэх бичлэг хараахан ороогүй байна.');
+        go('22', true);
+        return;
+      }
+
+      var addButton = e.target.closest ? e.target.closest('[data-cart-add]') : null;
+      if (addButton) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (addButton.getAttribute('data-ep-added') === 'true') {
+          go('10', true);
+          return;
+        }
+        var item = cartItemFromButton(addButton);
+        if (!item) {
+          notify('Сургалтын мэдээллийг уншиж чадсангүй.');
+          return;
+        }
+        var items = readCart();
+        if (items.some(function (savedItem) { return savedItem.id === item.id; })) {
+          notify('Энэ сургалт сагсанд аль хэдийн байна.');
+          return;
+        }
+        items.push(item);
+        if (writeCart(items)) {
+          updateCartCount(current && current.root, items.length);
+          markAdded(addButton);
+          notify('Сургалтыг сагсанд нэмлээ.');
+        }
+        return;
+      }
+
+      var removeButton = e.target.closest ? e.target.closest('[data-cart-remove]') : null;
+      if (removeButton) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        var itemId = removeButton.getAttribute('data-cart-remove');
+        var remainingItems = readCart().filter(function (item) { return item.id !== itemId; });
+        if (writeCart(remainingItems)) {
+          renderCartPage(current.root);
+          notify('Сургалтыг сагснаас хаслаа.');
+        }
+        return;
+      }
+
+      var clearButton = e.target.closest ? e.target.closest('[data-cart-clear]') : null;
+      if (clearButton) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (writeCart([])) {
+          renderCartPage(current.root);
+          notify('Сагсыг цэвэрлэлээ.');
+        }
+        return;
+      }
+
+      var checkoutButton = e.target.closest ? e.target.closest('[data-cart-checkout]') : null;
+      if (checkoutButton && !readCart().length) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        notify('Төлбөр төлөхөөс өмнө сургалт сагсандаа нэмнэ үү.');
+        return;
+      }
+      if (checkoutButton) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (!writeCart([])) return;
+        notify('Демо төлбөр амжилттай баталгаажлаа.');
+        go('11', true);
+        return;
+      }
+    }, true);
+
+    app.addEventListener('click', function (e) {
+      var avatar = e.target.closest ? e.target.closest('header img[alt="Profile"]') : null;
+      if (avatar) {
+        e.preventDefault();
+        toggleAccountMenu();
+        return;
+      }
+
+      if (current && (current.id === '01' || current.id === '03') &&
+          !e.target.closest('button, a, input, select, textarea, label')) {
+        var courseCard = e.target.closest('.group');
+        if (isCourseCard(courseCard)) {
+          go('04', true);
+          return;
+        }
+      }
+
       var target = e.target.closest ? e.target.closest('a, button') : null;
       if (!target) return;
 
+      if (current && (current.id === '05' || current.id === '22') && !target.closest('footer')) {
+        var lessonText = (target.textContent || '').trim();
+        var lesson = null;
+        if (target.tagName === 'A') {
+          lesson = lessonFromLabel(lessonText);
+        } else if (/^дараагийн хичээл$/i.test(plainLabel(lessonText))) {
+          var nextLink = Array.from(current.root.querySelectorAll('a')).find(function (link) {
+            return /^дараагийн сэдэв/i.test(plainLabel(link.textContent));
+          });
+          lesson = nextLink ? lessonFromLabel(nextLink.textContent) : null;
+        }
+        if (lesson) {
+          e.preventDefault();
+          openLesson(lesson);
+          return;
+        }
+      }
+
       var termsLink = target.closest('a[data-terms-nav]');
-      if (termsLink && current && current.id === '26') {
+      if (termsLink && current && (current.id === '26' || current.id === '27')) {
         e.preventDefault();
         current.root.querySelectorAll('[data-terms-nav]').forEach(function (link) {
           link.classList.toggle('is-active', link === termsLink);
@@ -1973,6 +2850,26 @@
         });
         var termsSection = current.root.querySelector(termsLink.getAttribute('href'));
         if (termsSection) termsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+
+      if (target.hasAttribute('data-cart-menu')) {
+        e.preventDefault();
+        go('10', true);
+        return;
+      }
+
+      if (current && current.id === '07' && /үргэлжлүүлэн үзэх|үргэлжлүүлэх|хичээл эхлүүлэх/i.test(buttonLabel(target))) {
+        e.preventDefault();
+        var courseCard = target.closest('.bg-surface-container-lowest');
+        var courseTitle = courseCard && courseCard.querySelector('h4');
+        var nextLesson = courseCard && courseCard.querySelector('strong');
+        currentLessonContext = {
+          course: courseTitle ? courseTitle.textContent.trim() : 'Миний сургалт',
+          lesson: nextLesson ? nextLesson.textContent.trim() : 'Хичээлийн агуулга'
+        };
+        notify('Энэ хичээлийн бичлэг хараахан ороогүй байна.');
+        go(/хичээл эхлүүлэх/i.test(buttonLabel(target)) ? '05' : '22', true);
         return;
       }
 
@@ -1991,13 +2888,13 @@
         return;
       }
 
-      var destination = contextualRoute(target, (target.textContent || '').trim());
+      var destination = contextualRoute(target, routeLabel(target));
       if (destination) {
         e.preventDefault();
         go(destination, true);
       } else if (target.tagName === 'A' && href === '#') {
         e.preventDefault();
-        notify((target.textContent || 'Холбоос').trim() + ' хэсгийг нээхэд бэлэн.');
+        notify((routeLabel(target) || 'Холбоос') + ' хэсгийг нээхэд бэлэн.');
       } else if (target.tagName === 'BUTTON' &&
                  target.getAttribute('data-ep-bound') !== 'true' &&
                  !target.hasAttribute('onclick')) {
